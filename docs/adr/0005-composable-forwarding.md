@@ -7,12 +7,12 @@
 ## Context
 
 The original whitepaper had a single `audit_clip_enabled: Boolean` knob
-gating one fixed audit channel pointing at a SDK-named backend
-(originally Hume AI). Two problems:
+gating one fixed audit channel pointing at a SDK-named backend. Two
+problems:
 
-1. **Named backends couple the SDK to specific vendors.** Hume's
-   Expression Measurement API was scheduled to sunset; any other
-   named backend has the same risk.
+1. **Named backends couple the SDK to specific vendors.** Any named
+   backend can be discontinued, repriced, or repositioned outside the
+   SDK's control.
 2. **One audit channel is too narrow.** Real integrators want to fan
    the same result to several places — content moderation, analytics
    warehouse, fraud queue, on-chain attestation, accessibility

@@ -151,10 +151,9 @@ All code is AI-written. This shapes several non-negotiables:
   tractable.
 - **≥72h soak** before each release. JNI ref leaks and Swift bridging
   lifetime bugs don't show up in unit tests.
-- **Reference patterns from analogous open-source SDKs** where
-  possible — Picovoice, MediaPipe, ONNX Runtime Mobile, Vosk,
-  whisper.cpp itself. Don't invent project layouts; copy known-working
-  ones.
+- **Follow known-working project layouts** for C++/JNI/Swift-interop
+  multi-platform SDKs rather than inventing one. The patterns in this
+  space are well-trodden.
 - **Always link types to where they're defined.** The full `SentlogResult`,
   `SentlogConfig`, `TelemetryEvent`, and forwarder types live in
   `docs/technical-specification.md §3` (API) and `§4` (forwarding).

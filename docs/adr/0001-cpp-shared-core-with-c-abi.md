@@ -16,25 +16,23 @@ the SDK's value proposition collapses.
 Four shared-core options were considered:
 
 1. **C++17 with a hand-written C ABI, wrapped by thin Kotlin (JNI) and
-   Swift (C-interop) layers.** Industry consensus pattern.
-2. **Kotlin Multiplatform (Kotlin/Native on iOS).** Ergonomic in Kotlin
-   but does not remove the C++ layer (whisper.cpp / ggml are C++); ends
-   up with both Kotlin and C++ in the shared layer.
-3. **Rust + UniFFI.** Memory-safe, good FFI tooling, but wrapping
-   whisper.cpp requires a C wrapper anyway — pays C++ toolchain cost
-   plus a Rust toolchain cost.
+   Swift (C-interop) layers.**
+2. **A managed shared language with native iOS/Android compilation
+   targets.** Ergonomic in the managed language but does not remove
+   the C++ layer (the ML dependencies are C++); ends up with two
+   languages in the shared layer.
+3. **A memory-safe systems language with generated FFI.** Strong
+   tooling, but wrapping the C++ ML dependencies requires a C wrapper
+   anyway — pays the C++ toolchain cost plus a second toolchain cost.
 4. **Two parallel native implementations.** Fastest to ship, but score
    parity is non-trivial to maintain over time and every interface
    change has to be done twice.
 
-Empirical evidence from comparable on-device voice/ML SDKs is
-unambiguous: Picovoice (Porcupine, Cobra, Rhino) uses an ANSI C core,
-MediaPipe uses C++17, ONNX Runtime Mobile uses C++, Vosk uses C++,
-DeepSpeech/Coqui STT uses C++, whisper.cpp itself uses C++. No
-commercial on-device voice/ML SDK ships KMP as its compute core. Rust
-+ UniFFI is proven in production for non-ML domains (Mozilla
-Application Services, Matrix Rust SDK, Bitwarden) but has zero
-on-device ML deployments.
+The ML and audio dependencies that the shared core wraps are all
+C/C++. Anything other than option 1 ends up paying the C++ toolchain
+tax plus its own. Score parity is structurally automatic when the
+same compiled object code runs everywhere, and structurally hard when
+two parallel implementations exist.
 
 ## Decision
 
@@ -60,8 +58,6 @@ keep AI-coded FFI tractable.
   without language hops.
 - The same C++ core compiles to WebAssembly for a future
   `@sentlog/web` (Phase 9).
-- Reference patterns from Picovoice / MediaPipe / ONNX Runtime Mobile
-  can be copied directly.
 
 **Constrained:**
 
@@ -75,10 +71,9 @@ keep AI-coded FFI tractable.
 
 ## Alternatives revisited
 
-These remain viable for narrow future use cases, but the cost of
-switching the shared core away from C++ outweighs any benefit:
-
-- **Rust + UniFFI:** could be reconsidered if a future ML kernel we
-  depend on becomes Rust-native and the C wrapping cost flips.
-- **Kotlin Multiplatform:** could be useful for *non-compute* code
-  (e.g. integration helpers, sample apps) but never the compute core.
+The non-C++ options remain viable for narrow future use cases — a
+memory-safe systems language could be reconsidered if a future ML
+kernel becomes native to it and the C wrapping cost flips, and a
+managed shared language could be useful for *non-compute* code (e.g.
+integration helpers, sample apps). Neither is a candidate for the
+compute core.

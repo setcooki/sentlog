@@ -11,10 +11,10 @@ stub in early phases, with a "real" model arriving later. Research
 into the state of the art (ASVspoof 2024/2025, AASIST literature)
 showed that:
 
-- AASIST-L (Jung et al., ICASSP 2022, [arXiv:2110.01200](https://arxiv.org/abs/2110.01200))
-  is the small variant of the AASIST graph-attention anti-spoofing
-  architecture: **~85K parameters, real-time on CPU, ~1% EER on
-  ASVspoof 2019-LA closed-set.**
+- AASIST-L is the small variant of the AASIST graph-attention
+  anti-spoofing architecture: **~85K parameters, real-time on CPU,
+  ~1% EER on ASVspoof 2019-LA closed-set.** Paper attribution lives
+  in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
 - The implementation effort for AASIST-L is comparable to a
   rule-based liveness stub.
 - Shipping rule-based first means a *worse* signal during the first
@@ -55,10 +55,9 @@ headline number.
 
 **Constrained:**
 
-- Liveness against modern voice cloning (ElevenLabs, OpenAI, XTTS
-  class) sits at 60–80% clean and 55–70% over telephony, per the
-  research. Sentlog is positioned as a *risk signal*, not an
-  authenticator (see ADR 0006).
+- Liveness against modern voice cloning sits at 60–80% clean and
+  55–70% over telephony in cross-generator evaluation. Sentlog is
+  positioned as a *risk signal*, not an authenticator (see ADR 0006).
 
 ## Integration notes
 

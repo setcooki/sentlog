@@ -28,10 +28,9 @@ on which integrators build verdicts.
 Several positions need stating up front:
 
 1. **Liveness is a risk signal, not an authenticator.**
-   Cross-generator performance against modern voice cloning
-   (ElevenLabs, OpenAI, XTTS class) sits at 60–80% clean and 55–70%
-   over telephony. Sentlog publishes per-attack-class numbers, never
-   a single headline accuracy.
+   Cross-generator performance against modern voice cloning sits at
+   60–80% clean and 55–70% over telephony. Sentlog publishes
+   per-attack-class numbers, never a single headline accuracy.
 
 2. **No SDK-owned cloud.** The SDK ships scoring; integrators name
    every destination. Composable forwarding is the only output
@@ -172,9 +171,10 @@ Differentiation lives in:
   patentable nor secret, all of which are well-designed primitives
   that adjacent SDKs in this space do not ship.
 
-Competitive frame: Sentlog occupies a slot adjacent to whisper.cpp,
-Vosk, MediaPipe — open-source vertical SDKs that the industry
-standardises around.
+Sentlog occupies a slot adjacent to other open-source vertical SDKs
+that the industry standardises around — composable primitives that
+larger systems depend on rather than commercial products competing
+for end-customers.
 
 ---
 

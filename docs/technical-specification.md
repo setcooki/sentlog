@@ -16,14 +16,14 @@ Companion documents:
 
 | # | Decision | Rationale |
 |---|---|---|
-| 1.1 | **C++17 shared core with hand-written C ABI; thin Kotlin (JNI) + Swift (C-interop) wrappers** | Industry consensus — every commercial on-device voice/ML SDK surveyed (Picovoice, MediaPipe, ONNX Runtime, Vosk, whisper.cpp itself, DeepSpeech/Coqui) uses this pattern. Score parity automatic. |
-| 1.2 | **whisper.cpp tiny Q5_1 on both platforms; iOS uses the whisper.cpp Core ML build** | One quantisation pipeline, one set of golden fixtures. WhisperKit documented as iOS escape valve. |
+| 1.1 | **C++17 shared core with hand-written C ABI; thin Kotlin (JNI) + Swift (C-interop) wrappers** | The C/C++ ML and audio dependencies the SDK wraps mean any other shared-core language pays the C++ toolchain tax plus its own. Score parity is structurally automatic when the same compiled object code runs on every platform. |
+| 1.2 | **whisper.cpp tiny Q5_1 on both platforms; iOS uses the whisper.cpp Core ML build** | One quantisation pipeline, one set of golden fixtures. An Apple-platform-native ASR alternative is the documented iOS escape valve. |
 | 1.3 | **Baseline model bundled; OTA via Ed25519-signed JSON manifest with two rotatable pinned keys; explicit `checkForUpdates()` API — never autonomous** | Industry standard. Apple §2.5.2 permits — model weights are data, not code. |
 | 1.4 | **16 kHz mono PCM, 16-bit, real-time audio thread → C++ ring buffer** | No platform-specific resampling in shared core. |
 | 1.5 | **Kotlin: `suspend fun evaluate(): SentlogResult`. Swift: `func evaluate() async throws -> SentlogResult`** | Native idioms per platform; cancellation is free. |
 | 1.6 | **`Sentlog` brand. Cocoa-style prefixes: `SentlogResult`, `SentlogConfig`** | Idiomatic in Swift, fine in Kotlin. |
-| 1.7 | **AASIST-L for liveness from week 2, not rule-based** | AASIST-L (Jung et al., ICASSP 2022, [arXiv:2110.01200](https://arxiv.org/abs/2110.01200)) is the small variant of the AASIST graph-attention anti-spoofing architecture — ~85K parameters, real-time on CPU, ~1% EER on ASVspoof 2019-LA closed-set. Pretrained-weight licence verified in Phase 0. |
-| 1.8 | **Whisper-encoder linear probe (~50 KB) + openSMILE eGeMAPS MLP head (~200 KB), ensembled** | Validated by PEFT-SER, SUPERB-SG benchmarks. |
+| 1.7 | **AASIST-L for liveness from week 2, not rule-based** | AASIST-L is the small variant of the AASIST graph-attention anti-spoofing architecture — ~85K parameters, real-time on CPU, ~1% EER on ASVspoof 2019-LA closed-set. Paper attribution and weight licence in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). |
+| 1.8 | **Whisper-encoder linear probe (~50 KB) + openSMILE eGeMAPS MLP head (~200 KB), ensembled** | Marginal compute is near-zero because whisper is already running for ASR; the encoder's hidden state is reused as a feature stream for the prosody probe. |
 | 1.9 | **Composable forwarding for all output destinations** | Fully decouples from any specific service. Integrator names every endpoint. |
 | 1.10 | **Audio input source + motion coherence are first-class signals; device integrity optional** | Catches the highest-volume fraud class (device farms). |
 | 1.11 | **Video used for affect / sentiment enrichment only; lip-sync as anti-spoof is reserved for future activation** | Augments engagement scoring. Lip-sync is cheap to add later because affect mode already captures face-mesh data. |

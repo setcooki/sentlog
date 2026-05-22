@@ -15,10 +15,9 @@ Two transcription stacks were considered:
 
 1. **whisper.cpp tiny Q5_1 on both platforms.** Single quantisation
    pipeline, single set of golden fixtures, C++ across the board.
-2. **whisper.cpp on Android + WhisperKit (Argmax) on iOS.** WhisperKit
-   pushes both encoder and decoder through Core ML / MLTensor and is
-   materially faster on modern A-series — but doubles the ASR
-   codepaths.
+2. **whisper.cpp on Android + an Apple-platform-native alternative on
+   iOS** that pushes both encoder and decoder through Core ML. Faster
+   on modern A-series but doubles the ASR codepaths.
 
 ## Decision
 
@@ -32,14 +31,13 @@ ggml's CPU NEON path (and Vulkan delegate where supported) — it does
 Quantisation: **Q5_1.** Sweet spot for tiny — near-F16 WER at ~40%
 size, modest speed gain on ARM.
 
-Encoder context: **ACFT-style variable-length context** (FUTO's
-`whisper-acft`). The largest single performance lever for mid-range
-Android — roughly 2× speedup on a 15-second clip versus the default
-30s padded encoder.
+Encoder context: **variable-length encoder context** (ACFT-style).
+The largest single performance lever for mid-range Android — roughly
+2× speedup on a 15-second clip versus the default 30s padded encoder.
 
-WhisperKit remains documented as an iOS-only escape valve if iOS
-performance complaints surface in production (see the §9.4 escape
-valves in the rollout plan).
+An Apple-platform-native ASR alternative remains documented as an
+iOS-only escape valve if iOS performance complaints surface in
+production (see the §9.4 escape valves in the rollout plan).
 
 ## Consequences
 
@@ -62,6 +60,6 @@ valves in the rollout plan).
 
 ## Open follow-ups
 
-- Validate WhisperKit comparison numbers on a current iPhone once the
-  iOS build is real, so we know how much headroom we'd have by
-  switching iOS to WhisperKit if forced.
+- Validate the iOS performance margin against an Apple-platform-native
+  ASR alternative once the iOS build is real, so we know how much
+  headroom we'd have by switching iOS if forced.

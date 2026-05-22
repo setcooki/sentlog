@@ -45,8 +45,9 @@ Benchmark gate is **pass** or formal architecture review triggered.
 
 ### Phase 2 — Transcription + transcript exposure + direction (Weeks 3–4)
 
-- whisper.cpp tiny Q5_1 with ACFT-style variable-length encoder context
-  (FUTO `whisper-acft`).
+- whisper.cpp tiny Q5_1 with variable-length (ACFT-style) encoder
+  context — the largest single performance lever for mid-range
+  Android.
 - iOS uses whisper.cpp Core ML build. Android uses LiteRT for the
   prosody/affect heads; whisper.cpp itself uses ggml's CPU/Vulkan paths.
 - `Transcript` populated in `SentlogResult` (text, language,
@@ -241,7 +242,7 @@ Estimated 3–4 weeks of work when scheduled.
 1. ACFT-style variable-length encoder context — baseline in Phase 2.
 2. GPU/Vulkan delegate via ggml where supported.
 3. Reduce prosody head to eGeMAPS-only on Android, drop whisper-probe.
-4. Switch iOS to WhisperKit (iOS-only).
+4. Switch iOS to an Apple-platform-native ASR alternative (iOS-only).
 5. Raise min Android API / SoC class (product decision).
 
 ### 2.5 OTA fetch behaviour
@@ -291,7 +292,7 @@ ID. No user identifier. No transcription content. No video frames.
 | Risk | Impact | Mitigation | Status |
 |---|---|---|---|
 | Android inference speed on mid-range | UX breaking if pipeline > 12s | Benchmark gate (§2); ACFT baseline | Unvalidated until Week 2 |
-| Voice-cloning attacks (ElevenLabs/OpenAI class) | Cross-generator liveness 55–80% | Multi-modal scoring; per-attack-class reporting; lip-sync deliberately deferred as cheap-to-activate reserve weapon | Partial — deliberate |
+| Voice-cloning attacks at scale | Cross-generator liveness 55–80% | Multi-modal scoring; per-attack-class reporting; lip-sync deliberately deferred as cheap-to-activate reserve weapon | Partial — deliberate |
 | AASIST-L pretrained weight licence | (Resolved — was: 4-week slip if non-permissive) | `clovaai/aasist` repo + weights MIT; ASVspoof 2019-LA training data ODC-BY 1.0. Attributions in `THIRD_PARTY_NOTICES.md`. | Resolved — see ADR 0004 |
 | Upstream OSS dependency drift | whisper.cpp / Silero / openSMILE / MediaPipe / Chromaprint stagnate or break | Pin to specific upstream versions; monthly health check; budget for in-house maintenance fork if any project goes silent for 6+ months | Tracking |
 | Engagement model cold start | First 5–7 months scored against thin model | `engagement_model_status` field surfaces truth; integrators forbidden to display engagement until `"trained"` | Managed |

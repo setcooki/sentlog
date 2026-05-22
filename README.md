@@ -113,7 +113,7 @@ sentlog/
 | State | No user model, no sessions, no accounts. Opaque `session_id` passthrough. |
 | Personal data | Voice and video never leave the device unless explicitly configured. Fingerprint forwarding ships ~120 bytes of non-invertible perceptual hash. |
 | Licence | MIT |
-| Foundational dependencies | whisper.cpp (MIT), Silero VAD (MIT), AASIST-L (research), openSMILE (BSD), Chromaprint (LGPL), MediaPipe Face Mesh (Apache 2.0) |
+| Foundational dependencies | whisper.cpp (MIT), Silero VAD (MIT), AASIST-L (MIT), openSMILE (BSD), Chromaprint (LGPL), MediaPipe Face Mesh (Apache 2.0) |
 
 ## Roadmap
 

@@ -10,10 +10,9 @@ Early drafts framed Sentlog as a "trust scoring SDK" — a system that
 answers "is this a real human?" with a yes/no verdict (or a threshold
 test). Two problems with that framing:
 
-1. **It overclaims.** Empirical research on modern voice cloning
-   (ElevenLabs, OpenAI, XTTS) shows on-device liveness sitting at
-   60–80% clean and 55–70% over telephony. A yes/no verdict over
-   numbers that bad is not honest.
+1. **It overclaims.** On-device liveness against modern voice cloning
+   sits at 60–80% clean and 55–70% over telephony in cross-generator
+   evaluation. A yes/no verdict over numbers that bad is not honest.
 2. **It centralises a decision that belongs to integrators.** Each
    integrator has its own threshold appetite, calibration, and
    downstream consequences. The SDK has no business prejudging that.
