@@ -95,6 +95,8 @@ required by the respective licence; this file carries attribution.
 | [Chromaprint](https://github.com/acoustid/chromaprint) | Perceptual audio fingerprint | LGPL-2.1+ |
 | [MediaPipe Face Mesh](https://github.com/google/mediapipe) | Face landmark detection (Android, affect mode) | Apache-2.0 |
 | Apple Vision framework | Face landmark detection (iOS, affect mode) | Apple system framework |
+| [nlohmann/json](https://github.com/nlohmann/json) | JSON parsing and serialisation in the C++ core | MIT |
+| [GoogleTest](https://github.com/google/googletest) | Test framework (build-time only; not in shipping artefacts) | BSD-3-Clause |
 
 When the SDK build system integrates each of these in the phases
 that own them, the bundled binaries carry the respective licence

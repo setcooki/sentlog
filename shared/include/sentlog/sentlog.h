@@ -138,8 +138,26 @@ void sentlog_destroy(sentlog_handle_t* handle);
  * ----------------------------------------------------------------- */
 
 /* Begin audio capture (and motion/video capture if the relevant
- * use_* flags were set at create time). */
+ * use_* flags were set at create time). The platform binding is the
+ * source of audio: it captures samples from the OS audio subsystem
+ * and feeds them in via sentlog_push_audio_frame(). The C++ core
+ * does not touch the audio device itself. */
 sentlog_status_t sentlog_start_capture(sentlog_handle_t* handle);
+
+/* Push one frame of captured audio into the SDK's ring buffer.
+ *   samples      Pointer to PCM samples, mono, 32-bit float, [-1.0, 1.0].
+ *   num_samples  Number of samples in this frame.
+ *
+ * Audio is expected at 16 kHz mono. Frame size is up to the binding;
+ * the ring buffer accepts any size up to its capacity per call. This
+ * call is on the hot path (~50 Hz at typical 20 ms frames) and is
+ * non-blocking — it returns immediately and never allocates. If the
+ * ring buffer is full the oldest samples are discarded silently and
+ * the buffer's overflow counter increments (surfaced via telemetry). */
+sentlog_status_t sentlog_push_audio_frame(
+    sentlog_handle_t* handle,
+    const float* samples,
+    size_t num_samples);
 
 /* Stop capture and run evaluation. Result arrives via cb on the I/O thread. */
 sentlog_status_t sentlog_evaluate(
