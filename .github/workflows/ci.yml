@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shared-asan-ubsan:
+    name: shared (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Configure
+        run: |
+          cmake -S shared -B shared/build \
+            -G Ninja \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DSENTLOG_ENABLE_ASAN=ON \
+            -DSENTLOG_ENABLE_UBSAN=ON
+
+      - name: Build
+        run: cmake --build shared/build
+
+      - name: Test
+        working-directory: shared/build
+        run: ctest --output-on-failure
+
+  shared-strict-warnings:
+    name: shared (strict warnings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Configure (no sanitisers, -Werror)
+        run: |
+          cmake -S shared -B shared/build \
+            -G Ninja \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS="-Werror"
+
+      - name: Build
+        run: cmake --build shared/build
+
+  ios-spm:
+    name: ios (Swift Package)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve and build (Swift Package only)
+        working-directory: ios
+        run: |
+          swift build -v
+          swift test -v
+
+  rn-package:
+    name: rn (npm package)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate package.json
+        working-directory: rn
+        run: |
+          node -e "require('./package.json')"
+          npm run lint --silent
+          npm run build --silent
+          npm test --silent
+
+  capacitor-package:
+    name: capacitor (npm package)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate package.json
+        working-directory: capacitor
+        run: |
+          node -e "require('./package.json')"
+          npm run lint --silent
+          npm run build --silent
+          npm test --silent
+
+  docs-lint:
+    name: docs (markdown lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify required docs exist
+        run: |
+          test -f README.md
+          test -f CLAUDE.md
+          test -f LICENSE
+          test -f SECURITY.md
+          test -f docs/whitepaper.md
+          test -f docs/technical-specification.md
+          test -f docs/rollout-plan.md
+          echo "All required docs present."

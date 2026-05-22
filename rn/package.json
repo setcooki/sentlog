@@ -1,0 +1,30 @@
+{
+  "name": "@sentlog/react-native",
+  "version": "0.0.0",
+  "description": "React Native bridge for Sentlog — universal device-first evidence and presence SDK",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "android",
+    "ios",
+    "package.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "echo \"[rn] Phase 0 stub — real build in Phase 6\"",
+    "lint": "echo \"[rn] Phase 0 stub\"",
+    "test": "echo \"[rn] Phase 0 stub\""
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-native": ">=0.72.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/setcooki/sentlog",
+    "directory": "rn"
+  }
+}

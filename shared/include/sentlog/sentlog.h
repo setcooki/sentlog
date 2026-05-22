@@ -1,0 +1,207 @@
+/*
+ * sentlog.h — Sentlog SDK C ABI
+ *
+ * Sentlog is a universal, device-first evidence and presence SDK. This
+ * header is the only stable boundary between the C++ shared core and
+ * every platform binding (Kotlin/JNI, Swift/C-interop, React Native,
+ * Capacitor). Keep it narrow.
+ *
+ * Design constraints (see docs/technical-specification.md):
+ *
+ *   - The surface is 8–12 functions plus opaque handles. No exposed
+ *     structs. AI-coded FFI bindings are only tractable at this size.
+ *   - Result and config data crosses the boundary as JSON strings to
+ *     keep the ABI flat. Binary fields inside the JSON (audio
+ *     fingerprint, signed envelope proof) are base64-encoded by the
+ *     core before they reach this layer.
+ *   - All async operations are callback-based. Bindings translate
+ *     them into native idioms: Kotlin coroutines, Swift async/await,
+ *     JS Promises.
+ *   - Heap-allocated strings returned by getter functions MUST be
+ *     released with sentlog_string_free().
+ *   - The library never requests permissions or touches the network
+ *     except through callbacks the integrator wired up. See the
+ *     "Inert by Default" principle in the whitepaper.
+ *
+ * Licence: MIT.
+ */
+
+#ifndef SENTLOG_H
+#define SENTLOG_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define SENTLOG_VERSION_MAJOR  0
+#define SENTLOG_VERSION_MINOR  1
+#define SENTLOG_VERSION_PATCH  0
+#define SENTLOG_VERSION_STRING "0.1.0"
+
+/* --------------------------------------------------------------------
+ * Error / status codes
+ *
+ * Every function that can fail returns sentlog_status_t. Functions that
+ * cannot fail return void or a non-status value documented per function.
+ * ----------------------------------------------------------------- */
+
+typedef enum {
+    SENTLOG_OK                     = 0,
+    SENTLOG_ERR_INVALID_CONFIG     = 1,  /* config JSON malformed or fails validation */
+    SENTLOG_ERR_INVALID_STATE      = 2,  /* lifecycle violation (e.g. evaluate before init) */
+    SENTLOG_ERR_PERMISSION_DENIED  = 3,  /* required platform permission not granted */
+    SENTLOG_ERR_CAPTURE_FAILED     = 4,  /* audio/video capture failed at the platform level */
+    SENTLOG_ERR_MODEL_LOAD         = 5,  /* model file missing, corrupt, or version mismatch */
+    SENTLOG_ERR_MANIFEST_VERIFY    = 6,  /* OTA manifest signature did not verify */
+    SENTLOG_ERR_CANCELLED          = 7,  /* operation was cancelled by sentlog_cancel() */
+    SENTLOG_ERR_HARDWARE_SIGNING   = 8,  /* hardware-backed signing required but unavailable */
+    SENTLOG_ERR_TSA                = 9,  /* TSA required but TSA request failed */
+    SENTLOG_ERR_INTERNAL           = 99  /* anything not covered above */
+} sentlog_status_t;
+
+/* --------------------------------------------------------------------
+ * Opaque handle types
+ *
+ * Bindings never look inside these — they're just pointers. All field
+ * access goes through getter functions that return JSON.
+ * ----------------------------------------------------------------- */
+
+typedef struct sentlog_handle sentlog_handle_t;
+
+/* --------------------------------------------------------------------
+ * Callback signatures
+ *
+ * All async results arrive here. Callbacks are invoked from the SDK's
+ * I/O thread — bindings are responsible for marshalling back to the
+ * platform's UI thread if needed.
+ *
+ * Strings passed to callbacks are owned by the SDK and valid only for
+ * the duration of the call. If the binding needs them longer, copy.
+ * ----------------------------------------------------------------- */
+
+/* evaluate() completion. result_json is non-NULL only when status == OK. */
+typedef void (*sentlog_result_cb_t)(
+    sentlog_status_t status,
+    const char* result_json,
+    void* userdata);
+
+/* checkForUpdates() completion. */
+typedef void (*sentlog_update_cb_t)(
+    sentlog_status_t status,
+    const char* update_json,
+    void* userdata);
+
+/* Per-envelope callback during drainQueue(). Return 1 to delete the
+ * envelope from the queue, 0 to leave it for a later drain. */
+typedef int (*sentlog_drain_cb_t)(
+    const char* envelope_json,
+    size_t envelope_len,
+    void* userdata);
+
+/* Telemetry. Fires only if a callback was provided at sentlog_create().
+ * event_json carries the TelemetryEvent shape defined in §3.2 of the
+ * technical specification. No PII, no audio, no transcript, no frames. */
+typedef void (*sentlog_telemetry_cb_t)(
+    const char* event_json,
+    void* userdata);
+
+/* --------------------------------------------------------------------
+ * Lifecycle
+ * ----------------------------------------------------------------- */
+
+/* Get the SDK version as a static string. Always succeeds. */
+const char* sentlog_version(void);
+
+/* Create an SDK instance.
+ *
+ *   config_json         JSON matching the SentlogConfig schema in §3.3.
+ *   telemetry_cb        Optional. May be NULL.
+ *   telemetry_userdata  Opaque pointer passed back to telemetry_cb.
+ *   status_out          Receives the creation status. Must be non-NULL.
+ *
+ * Returns a handle on success or NULL on failure (with *status_out set).
+ * The handle must be released with sentlog_destroy(). */
+sentlog_handle_t* sentlog_create(
+    const char* config_json,
+    sentlog_telemetry_cb_t telemetry_cb,
+    void* telemetry_userdata,
+    sentlog_status_t* status_out);
+
+/* Destroy an SDK instance. Safe to call with NULL. */
+void sentlog_destroy(sentlog_handle_t* handle);
+
+/* --------------------------------------------------------------------
+ * Capture and evaluation
+ * ----------------------------------------------------------------- */
+
+/* Begin audio capture (and motion/video capture if the relevant
+ * use_* flags were set at create time). */
+sentlog_status_t sentlog_start_capture(sentlog_handle_t* handle);
+
+/* Stop capture and run evaluation. Result arrives via cb on the I/O thread. */
+sentlog_status_t sentlog_evaluate(
+    sentlog_handle_t* handle,
+    sentlog_result_cb_t cb,
+    void* userdata);
+
+/* Cancel an in-progress capture or evaluation. If an evaluate() is
+ * pending, its callback fires with SENTLOG_ERR_CANCELLED. */
+void sentlog_cancel(sentlog_handle_t* handle);
+
+/* --------------------------------------------------------------------
+ * Read-only state queries
+ *
+ * All return heap-allocated JSON owned by the caller. Free with
+ * sentlog_string_free(). Return NULL on internal failure.
+ * ----------------------------------------------------------------- */
+
+/* Permission state for microphone / motion / camera. Schema: §3.2. */
+char* sentlog_get_permissions(sentlog_handle_t* handle);
+
+/* Capability detection for the current runtime. Schema: §3.2. */
+char* sentlog_get_capabilities(sentlog_handle_t* handle);
+
+/* Versions of loaded models and the OTA manifest. Schema: §3.2. */
+char* sentlog_model_versions(sentlog_handle_t* handle);
+
+/* --------------------------------------------------------------------
+ * OTA
+ * ----------------------------------------------------------------- */
+
+/* Check the configured manifest URL for an updated model bundle.
+ * Verification (Ed25519 signature, SHA-256 content hash) is automatic.
+ * Result via cb. Never autonomous — only fires when called. */
+sentlog_status_t sentlog_check_for_updates(
+    sentlog_handle_t* handle,
+    sentlog_update_cb_t cb,
+    void* userdata);
+
+/* --------------------------------------------------------------------
+ * Local queue (offline forwarding)
+ * ----------------------------------------------------------------- */
+
+/* Drain the local envelope queue at the given path. Each envelope is
+ * delivered to cb; the callback decides whether to delete it (1) or
+ * keep it (0). Returns the number of envelopes delivered. */
+int sentlog_drain_queue(
+    sentlog_handle_t* handle,
+    const char* path,
+    sentlog_drain_cb_t cb,
+    void* userdata);
+
+/* --------------------------------------------------------------------
+ * Memory management
+ * ----------------------------------------------------------------- */
+
+/* Free a heap-allocated string returned by any sentlog_get_* or
+ * sentlog_model_versions function. Safe to call with NULL. */
+void sentlog_string_free(char* str);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* SENTLOG_H */

@@ -1,0 +1,60 @@
+# build outputs
+build/
+out/
+dist/
+*.o
+*.a
+*.so
+*.dylib
+
+# C++ / CMake (top-level Makefile is intentional; CMake-generated
+# Makefiles live inside build/ which is already excluded above)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+.cmake/
+
+# Android
+*.iml
+.gradle/
+local.properties
+*.apk
+*.aab
+
+# iOS
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+
+# Node
+node_modules/
+*.tgz
+.pnp.*
+.yarn/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model files (large, fetched separately)
+models/**/*.bin
+models/**/*.tflite
+models/**/*.mlmodel
+models/**/*.mlmodelc
+models/**/*.onnx
+
+# Local environment
+.env
+.env.local

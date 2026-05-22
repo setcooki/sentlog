@@ -1,0 +1,38 @@
+{
+  "name": "@sentlog/capacitor",
+  "version": "0.0.0",
+  "description": "Capacitor plugin for Sentlog — universal device-first evidence and presence SDK",
+  "license": "MIT",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "android",
+    "ios",
+    "package.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "echo \"[capacitor] Phase 0 stub — real build in Phase 6\"",
+    "lint": "echo \"[capacitor] Phase 0 stub\"",
+    "test": "echo \"[capacitor] Phase 0 stub\""
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=5.0.0"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/setcooki/sentlog",
+    "directory": "capacitor"
+  }
+}
