@@ -15,8 +15,6 @@ showed that:
   is the small variant of the AASIST graph-attention anti-spoofing
   architecture: **~85K parameters, real-time on CPU, ~1% EER on
   ASVspoof 2019-LA closed-set.**
-- It is the architecture that matches the profile claimed in early
-  drafts ("98%+ accuracy on edge devices in tens of ms").
 - The implementation effort for AASIST-L is comparable to a
   rule-based liveness stub.
 - Shipping rule-based first means a *worse* signal during the first

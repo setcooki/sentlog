@@ -21,8 +21,6 @@ Companion documents:
 - Repo structure created. CI green with ASan + UBSan jobs.
 - C ABI header drafted at `shared/include/sentlog/sentlog.h`. Generated
   Kotlin and Swift signatures reviewed by one engineer per integrator.
-- Whitepaper authors asked to verify the "Imperial College 98%"
-  citation referenced in early drafts.
 - **AASIST-L pretrained-weight licence verified.** Required before
   bundling any community checkpoint. Falls through to training-from-
   scratch on ASVspoof if no permissively-licensed weight set exists.
@@ -292,7 +290,6 @@ ID. No user identifier. No transcription content. No video frames.
 | Risk | Impact | Mitigation | Status |
 |---|---|---|---|
 | Android inference speed on mid-range | UX breaking if pipeline > 12s | Benchmark gate (§2); ACFT baseline | Unvalidated until Week 2 |
-| "Imperial College 98%" claim in early drafts | External claims may rest on uncited research | Verify Phase 0; position SDK as risk signal regardless | Open |
 | Voice-cloning attacks (ElevenLabs/OpenAI class) | Cross-generator liveness 55–80% | Multi-modal scoring; per-attack-class reporting; lip-sync deliberately deferred as cheap-to-activate reserve weapon | Partial — deliberate |
 | AASIST-L pretrained weight licence | If non-permissive, Phase 1 ships with rule-based liveness; ~4 weeks added to liveness model maturity | Phase 0 due-diligence verifies. Fallback: train from scratch on ASVspoof eval data. | Open — Phase 0 gate |
 | Upstream OSS dependency drift | whisper.cpp / Silero / openSMILE / MediaPipe / Chromaprint stagnate or break | Pin to specific upstream versions; monthly health check; budget for in-house maintenance fork if any project goes silent for 6+ months | Tracking |
@@ -318,9 +315,7 @@ ID. No user identifier. No transcription content. No video frames.
 2. **Engagement labelling budget** — clips/month rate determines
    whether the first reliable engagement model lands at month 5 or
    month 7.
-3. **"Imperial College 98%" citation** — verify with original author
-   or soften external messaging.
-4. **Lip-sync activation policy** — commit to a future activation
+3. **Lip-sync activation policy** — commit to a future activation
    window, or leave as reserve for if/when voice cloning becomes a
    felt production problem.
 
