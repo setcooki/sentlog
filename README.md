@@ -149,3 +149,6 @@ If Sentlog is useful to you and you'd like to support the work:
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Third-party attributions (upstream models, datasets, and libraries
+the SDK builds on) are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

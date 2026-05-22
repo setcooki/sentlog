@@ -21,9 +21,10 @@ Companion documents:
 - Repo structure created. CI green with ASan + UBSan jobs.
 - C ABI header drafted at `shared/include/sentlog/sentlog.h`. Generated
   Kotlin and Swift signatures reviewed by one engineer per integrator.
-- **AASIST-L pretrained-weight licence verified.** Required before
-  bundling any community checkpoint. Falls through to training-from-
-  scratch on ASVspoof if no permissively-licensed weight set exists.
+- **AASIST-L pretrained-weight licence verified.** Resolved GREEN —
+  `clovaai/aasist` repo and its in-tree `AASIST-L.pth` weight file
+  are MIT-licensed; ASVspoof 2019-LA training data is ODC-BY 1.0.
+  Attributions go in `THIRD_PARTY_NOTICES.md`. See ADR 0004.
 - LICENSE file (MIT) and SECURITY.md committed to repo root.
 - Labelling budget for the corpus confirmed by product.
 
@@ -33,8 +34,8 @@ Exit: empty SDK builds and publishes a snapshot artefact from CI.
 
 - Audio capture on both platforms into the C++ ring buffer.
 - Silero VAD integrated.
-- AASIST-L liveness model integrated (or rule-based fallback if weight
-  licence blocks bundling).
+- AASIST-L liveness model integrated using the upstream MIT-licensed
+  `AASIST-L.pth` checkpoint from `clovaai/aasist` (see ADR 0004).
 - Audio input route detection wired.
 - **Benchmark gate (§2) executed.** Recorded in `docs/benchmarks/wk2.md`.
 
@@ -291,7 +292,7 @@ ID. No user identifier. No transcription content. No video frames.
 |---|---|---|---|
 | Android inference speed on mid-range | UX breaking if pipeline > 12s | Benchmark gate (§2); ACFT baseline | Unvalidated until Week 2 |
 | Voice-cloning attacks (ElevenLabs/OpenAI class) | Cross-generator liveness 55–80% | Multi-modal scoring; per-attack-class reporting; lip-sync deliberately deferred as cheap-to-activate reserve weapon | Partial — deliberate |
-| AASIST-L pretrained weight licence | If non-permissive, Phase 1 ships with rule-based liveness; ~4 weeks added to liveness model maturity | Phase 0 due-diligence verifies. Fallback: train from scratch on ASVspoof eval data. | Open — Phase 0 gate |
+| AASIST-L pretrained weight licence | (Resolved — was: 4-week slip if non-permissive) | `clovaai/aasist` repo + weights MIT; ASVspoof 2019-LA training data ODC-BY 1.0. Attributions in `THIRD_PARTY_NOTICES.md`. | Resolved — see ADR 0004 |
 | Upstream OSS dependency drift | whisper.cpp / Silero / openSMILE / MediaPipe / Chromaprint stagnate or break | Pin to specific upstream versions; monthly health check; budget for in-house maintenance fork if any project goes silent for 6+ months | Tracking |
 | Engagement model cold start | First 5–7 months scored against thin model | `engagement_model_status` field surfaces truth; integrators forbidden to display engagement until `"trained"` | Managed |
 | Gaming at $0.01 scale | Fraudulent submissions reduce pool value | Multi-modal catches farms; fingerprint forwarding catches duplicates | Addressed |
@@ -321,13 +322,11 @@ ID. No user identifier. No transcription content. No video frames.
 
 ### 5.2 Phase 0 engineering gates
 
-1. **AASIST-L pretrained weight licence verification.** If
-   non-permissive, Phase 1 ships rule-based liveness and a
-   training-from-scratch pipeline runs in parallel; reliable liveness
-   slips ~4 weeks.
-2. **MIT licence text finalised** and committed at repo root.
-3. **C ABI header reviewed** by one engineer per integrator before
+1. **C ABI header reviewed** by one engineer per integrator before
    anything depends on it.
+
+(AASIST-L pretrained weight licence verified GREEN — see ADR 0004.
+LICENSE committed at repo root.)
 
 ---
 

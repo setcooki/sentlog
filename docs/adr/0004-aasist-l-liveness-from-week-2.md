@@ -24,11 +24,13 @@ showed that:
 ## Decision
 
 **Ship AASIST-L for liveness from Phase 1**, not a rule-based
-placeholder. Use the community-published checkpoint where licensing
-permits (see open Phase 0 gate below). If licensing blocks bundling,
-fall back to a rule-based stub *only* in Phase 1, and train AASIST-L
-from scratch on ASVspoof eval data in parallel — adding roughly 4
-weeks to liveness maturity.
+placeholder. Bundle the **official `models/weights/AASIST-L.pth`
+checkpoint from `clovaai/aasist`** directly — the repo carries a
+single, unambiguous, whole-repo MIT licence signed by NAVER Corp
+covering both code and the in-tree weight files. The training data
+(ASVspoof 2019-LA under ODC-BY 1.0) permits commercial derivatives
+with attribution. Attributions live in `THIRD_PARTY_NOTICES.md` at
+repo root.
 
 The liveness output is exposed as a `Liveness` struct with:
 - `score` — overall liveness 0..1
@@ -57,13 +59,20 @@ headline number.
   class) sits at 60–80% clean and 55–70% over telephony, per the
   research. Sentlog is positioned as a *risk signal*, not an
   authenticator (see ADR 0006).
-- The pretrained-weight licence is a Phase 0 gate. Verifying this is
-  blocking.
 
-## Open Phase 0 gate
+## Integration notes
 
-The AASIST-L pretrained-weight licence must be verified before any
-checkpoint is bundled. If non-permissive, Phase 1 ships rule-based
-liveness and a training-from-scratch pipeline runs in parallel;
-reliable liveness slips ~4 weeks. Tracked in
-[docs/rollout-plan.md §5.2](../rollout-plan.md#52-phase-0-engineering-gates).
+- **Pin the upstream commit SHA** at acquisition time so the licence
+  state at the moment of bundling is reproducible. Record the SHA in
+  `models/liveness/SOURCE.md` (added when the model files actually
+  land in Phase 1).
+- **Do NOT import `evaluation.py` from `clovaai/aasist`.** That file
+  pulls in min-tDCF metric code that the repo's `NOTICE` flags as
+  CC-BY-NC-SA 4.0 (non-commercial). The architecture
+  (`models/AASIST.py`) and the weight blob (`models/weights/AASIST-L.pth`)
+  are clean MIT.
+- **Belt-and-braces (optional, ~1 day):** email the corresponding
+  author (Jee-weon Jung, jeeweon.jung@navercorp.com per the paper)
+  confirming the weights are intended under MIT. Not legally required
+  given the repo state, but useful as insurance for any procurement
+  audit later.
