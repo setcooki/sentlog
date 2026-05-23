@@ -25,7 +25,7 @@ let package = Package(
         // model in the same runtime (see ADR 0009).
         .package(
             url: "https://github.com/microsoft/onnxruntime-swift-package-manager",
-            from: "1.17.1"
+            exact: "1.17.1"
         ),
     ],
     targets: [

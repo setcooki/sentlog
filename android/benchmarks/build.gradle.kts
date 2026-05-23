@@ -18,14 +18,13 @@ android {
     }
 
     buildTypes {
-        // androidx.benchmark mandates a `release`-style "benchmark"
-        // build type. The benchmark plugin wires this up automatically;
-        // we just need to make sure release-equivalent settings apply.
+        // androidx.benchmark mandates a `release`-style build type.
+        // The benchmark gradle plugin injects its own benchmark
+        // buildType derived from release. Library release builds are
+        // non-debuggable by default; AGP's library DSL doesn't expose
+        // isDebuggable on a release buildType so we don't set it.
         named("release") {
             isMinifyEnabled = false
-            // Disable debugging in the test app — debug builds skew
-            // timing badly.
-            isDebuggable = false
         }
     }
 
