@@ -38,6 +38,15 @@ The script:
 6. Copies into both platform asset directories
    (`android/sentlog/src/main/assets/`, `ios/Sources/Sentlog/Resources/`).
 
+After the script copies the iOS file you must also uncomment the
+`.copy("Resources/aasist_l.onnx")` line in [`ios/Package.swift`](../../ios/Package.swift)
+in the same commit — SwiftPM only bundles resources that are
+explicitly declared. Without that edit, `Bundle.module.url(...)`
+returns nil and the iOS runner stays in placeholder mode even
+though the file is on disk. Android's gradle build picks up
+anything dropped into `assets/` automatically, so there's no
+matching edit on that side.
+
 Output is `~340 KB` (≈ same order as the source `.pth`).
 
 ## What the SDK does with the file

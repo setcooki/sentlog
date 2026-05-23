@@ -43,6 +43,16 @@ let package = Package(
             resources: [
                 .process("PrivacyInfo.xcprivacy"),
                 .copy("Resources/silero_vad.onnx"),
+                // AASIST-L is added here once tools/aasist-conversion/
+                // convert-aasist-l.py has produced
+                //     ios/Sources/Sentlog/Resources/aasist_l.onnx
+                // Uncomment the line below at the same commit that
+                // adds the binary. AasistLivenessRunner.swift already
+                // handles the missing-file case (returns nil), so
+                // leaving it commented while the model is absent is
+                // safe — but the model bundle is inert on iOS until
+                // both lines land together.
+                // .copy("Resources/aasist_l.onnx"),
             ]
         ),
         .testTarget(

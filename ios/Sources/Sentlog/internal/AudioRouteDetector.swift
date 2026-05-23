@@ -38,6 +38,15 @@ internal enum AudioRouteDetector {
 
     #if os(iOS) || os(tvOS) || os(visionOS)
     static func map(portType: AVAudioSession.Port) -> sentlog_audio_route_t {
+        // Asymmetry vs Android: the Android detector maps
+        // TYPE_REMOTE_SUBMIX and TYPE_TELEPHONY to LOOPBACK. iOS has
+        // no equivalent AVAudioSession.Port — REMOTE_SUBMIX is an
+        // Android-specific bus and AVAudioSession doesn't surface
+        // telephony as an input port. So LOOPBACK is not currently
+        // reachable from iOS detection; suspicionRank() still ranks
+        // it because the enum is shared, and a future iOS API (or a
+        // manual override via sentlog_set_audio_route) can still
+        // surface it.
         switch portType {
         case .builtInMic, .headsetMic:                  return SENTLOG_AUDIO_ROUTE_BUILT_IN
         case .usbAudio:                                  return SENTLOG_AUDIO_ROUTE_USB
