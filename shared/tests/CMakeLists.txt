@@ -22,10 +22,10 @@ target_link_libraries(sentlog_tests
     PRIVATE
         sentlog
         GTest::gtest_main
-        nlohmann_json::nlohmann_json
 )
 target_include_directories(sentlog_tests
     PRIVATE ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/external
 )
 
 include(GoogleTest)

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Sentlog SDK privacy manifest.
+
+      The SDK itself collects nothing. It runs entirely on-device and
+      transmits no data unless the integrator explicitly configures a
+      forwarder (see SentlogConfig.forwarders). When forwarders are
+      configured, the integrator's app is the data controller and is
+      responsible for declaring the collection in its own privacy
+      manifest.
+
+      Microphone access is required at runtime and must be declared by
+      the integrator's app via NSMicrophoneUsageDescription in
+      Info.plist. The SDK does not request the permission itself.
+    -->
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array/>
+</dict>
+</plist>

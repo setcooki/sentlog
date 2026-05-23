@@ -44,7 +44,10 @@ test-android:
 	@cd android && gradle :sentlog:testDebugUnitTest --no-daemon
 
 build-ios:
-	@echo "[build-ios] Phase 0 stub — XCFramework build wires up in Phase 1"
+	@cd ios && swift build
+
+test-ios:
+	@cd ios && swift test
 
 build-rn:
 	@echo "[build-rn] Phase 0 stub — @sentlog/react-native wires up in Phase 6"
@@ -56,9 +59,6 @@ test: test-shared
 
 test-shared: build-shared
 	@cd shared/build && ctest --output-on-failure
-
-test-ios:
-	@echo "[test-ios] Phase 0 stub"
 
 test-bridges:
 	@echo "[test-bridges] Phase 0 stub"

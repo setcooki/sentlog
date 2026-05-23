@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# Vendored third-party single-header libraries. Treat as binary for diff
+# purposes so the noise doesn't drown out actual code changes; linguist
+# excludes from language stats.
+shared/external/**/*.hpp linguist-vendored
+shared/external/**/*.hpp -diff
+shared/external/**/*.hpp -merge

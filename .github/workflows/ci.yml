@@ -99,11 +99,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve and build (Swift Package only)
+      - name: Resolve and build (SwiftPM, includes ../shared C++ core)
         working-directory: ios
-        run: |
-          swift build -v
-          swift test -v
+        run: swift build -v
+
+      - name: Test (macOS host — exercises Swift API + C++ shared core via SwiftPM)
+        working-directory: ios
+        run: swift test -v
 
   rn-package:
     name: rn (npm package)

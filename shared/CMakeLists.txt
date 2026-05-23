@@ -36,18 +36,11 @@ add_compile_options(
 )
 
 # --- Third-party deps -------------------------------------------------
-include(FetchContent)
-
-# nlohmann/json — header-only JSON. MIT.
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
-)
-set(JSON_BuildTests OFF CACHE INTERNAL "")
-set(JSON_Install    OFF CACHE INTERNAL "")
-FetchContent_MakeAvailable(nlohmann_json)
+# nlohmann/json is vendored as a single header at
+# external/nlohmann/json.hpp. Both the CMake build (here) and the
+# SwiftPM build (ios/Package.swift) consume the same file — keeps the
+# two build systems on identical source. Updates: drop in a new
+# single_include/nlohmann/json.hpp from upstream.
 
 # --- The C ABI library -------------------------------------------------
 add_library(sentlog STATIC
@@ -59,8 +52,8 @@ add_library(sentlog STATIC
 target_include_directories(sentlog
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/external
 )
-target_link_libraries(sentlog PRIVATE nlohmann_json::nlohmann_json)
 set_target_properties(sentlog PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
