@@ -13,6 +13,7 @@ import me.cooki.sentlog.internal.ResultCallback
 import me.cooki.sentlog.internal.SileroVadStream
 import me.cooki.sentlog.internal.TelemetryCallback
 import me.cooki.sentlog.internal.UpdateCallback
+import me.cooki.sentlog.internal.WhisperRunner
 
 /**
  * Sentlog public API. Singleton — one SDK instance per app session.
@@ -189,11 +190,14 @@ public object Sentlog {
         vadStream?.close()
         vadStream = null
 
-        // AASIST-L liveness inference, if the model is bundled. Runs
-        // BEFORE the native evaluate so the pushed result lands in
-        // the pipeline. Snapshot is non-destructive; pipeline still
-        // drains the audio inside sentlog_evaluate.
+        // Run AASIST-L (utterance liveness) and whisper.cpp (ASR) in
+        // sequence BEFORE the native evaluate so their pushed results
+        // land in the pipeline. Snapshots are non-destructive; the
+        // pipeline still drains the audio inside sentlog_evaluate.
+        // Both are best-effort — a failure in either leaves the
+        // pipeline emitting the corresponding placeholder.
         runAasistAndPushLiveness(h)
+        runWhisperAndPushTranscript(h)
 
         val deferred = CompletableDeferred<SentlogResult>()
         val cb = object : ResultCallback() {
@@ -343,8 +347,40 @@ public object Sentlog {
         }
     }
 
+    /** Run whisper.cpp over the captured audio if the model is
+     *  bundled. Safe to call always — when the asset isn't present
+     *  this is a no-op and the C++ pipeline emits the placeholder
+     *  transcript. Pushes the result via sentlog_push_transcript so
+     *  Pipeline::run populates the result's transcript block from it.
+     *
+     *  Whisper takes a few seconds per call. evaluate() runs on
+     *  Dispatchers.IO already, so this stays inline.
+     */
+    private fun runWhisperAndPushTranscript(h: Long) {
+        val ctx = appContext ?: return
+        // Snapshot the full ring (up to ~30 s). Bigger than AASIST-L's
+        // 4 s window because whisper transcribes everything that was said.
+        val capacity = WHISPER_MAX_SAMPLES
+        val buf = FloatArray(capacity)
+        val n = NativeBridge.nativeSnapshotAudio(h, buf)
+        if (n <= 0) return
+        val audioSlice = if (n == capacity) buf else buf.copyOfRange(0, n)
+        try {
+            WhisperRunner.loadIfAvailable(ctx)?.use { runner ->
+                val json = runner.transcribe(audioSlice) ?: return
+                NativeBridge.nativePushTranscript(h, json)
+            }
+        } catch (_: Throwable) {
+            // whisper.cpp failure leaves the placeholder transcript in
+            // place — model_versions.asr flags that nothing real ran.
+        }
+    }
+
     /** Asset name of the bundled Silero VAD ONNX model. */
     private const val SILERO_MODEL_ASSET: String = "silero_vad.onnx"
     /** Asset name of the bundled AASIST-L liveness ONNX model. */
     private const val AASIST_MODEL_ASSET: String = "aasist_l.onnx"
+    /** Whisper transcribes up to 30 s of audio — matches the ring
+     *  buffer size in shared/src/internal/state.h. */
+    private const val WHISPER_MAX_SAMPLES: Int = 16_000 * 30
 }

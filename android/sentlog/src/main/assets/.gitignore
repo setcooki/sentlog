@@ -1,0 +1,7 @@
+# Per-platform large model bundles are not committed; operators run
+# the matching downloader before a release build. See:
+#   tools/whisper-model/README.md          → whisper-tiny.bin
+#   tools/aasist-conversion/README.md      → aasist_l.onnx
+# Silero VAD (silero_vad.onnx) IS committed because it's only ~2 MB.
+whisper-tiny.bin
+aasist_l.onnx

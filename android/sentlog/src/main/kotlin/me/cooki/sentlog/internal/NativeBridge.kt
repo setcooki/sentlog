@@ -14,6 +14,11 @@ internal object NativeBridge {
         System.loadLibrary("sentlog_jni")
     }
 
+    /** No-op call other internal modules use to force the JNI library
+     *  to load before they invoke their own external functions (e.g.
+     *  WhisperRunner declares native methods in the same .so). */
+    fun ensureLoaded() = Unit
+
     // Status code constants — keep in sync with sentlog_status_t.
     const val STATUS_OK                    = 0
     const val STATUS_ERR_INVALID_CONFIG    = 1
@@ -44,6 +49,7 @@ internal object NativeBridge {
     @JvmStatic external fun nativePushAudioFrame(handle: Long, samples: FloatArray, numSamples: Int): Int
     @JvmStatic external fun nativePushVadFrame(handle: Long, startSample: Long, numSamples: Int, probability: Float): Int
     @JvmStatic external fun nativePushLivenessResult(handle: Long, score: Float, replayRisk: Float, syntheticRisk: Float): Int
+    @JvmStatic external fun nativePushTranscript(handle: Long, transcriptJson: String): Int
     @JvmStatic external fun nativeSetAudioRoute(handle: Long, route: Int): Int
     /** Non-destructive snapshot. Returns the number of samples written into [out]. */
     @JvmStatic external fun nativeSnapshotAudio(handle: Long, out: FloatArray): Int

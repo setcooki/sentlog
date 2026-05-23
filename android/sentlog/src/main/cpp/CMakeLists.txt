@@ -15,12 +15,32 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(SENTLOG_SHARED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../shared")
 add_subdirectory("${SENTLOG_SHARED_DIR}" sentlog_shared_build)
 
+# whisper.cpp — Phase 2 ASR. Pulled in via FetchContent (consistent
+# with how googletest comes in on the shared/ side). The vendored
+# build is CPU-only — Vulkan / GPU paths are deferred follow-ups. The
+# model file (.bin) is *not* fetched here; the Kotlin runner loads it
+# from assets at runtime and gracefully no-ops when absent.
+include(FetchContent)
+set(WHISPER_BUILD_TESTS    OFF CACHE BOOL "")
+set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "")
+set(WHISPER_BUILD_SERVER   OFF CACHE BOOL "")
+set(GGML_OPENMP            OFF CACHE BOOL "")   # OpenMP isn't on the Android NDK by default
+FetchContent_Declare(
+    whisper_cpp
+    GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
+    GIT_TAG        v1.7.1
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(whisper_cpp)
+
 add_library(sentlog_jni SHARED
     sentlog_jni.cpp
+    whisper_jni.cpp
 )
 target_link_libraries(sentlog_jni
     PRIVATE
         sentlog
+        whisper
         android
         log
 )

@@ -244,6 +244,19 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativePushLivenessResult(
 }
 
 JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativePushTranscript(
+    JNIEnv* env, jclass /*clazz*/, jlong handle, jstring transcript_json) {
+
+    if (transcript_json == nullptr) return SENTLOG_ERR_INVALID_CONFIG;
+    const char* j = env->GetStringUTFChars(transcript_json, nullptr);
+    if (j == nullptr) return SENTLOG_ERR_INTERNAL;
+    const jint rc = static_cast<jint>(
+        sentlog_push_transcript(native_from_jlong(handle), j));
+    env->ReleaseStringUTFChars(transcript_json, j);
+    return rc;
+}
+
+JNIEXPORT jint JNICALL
 Java_me_cooki_sentlog_internal_NativeBridge_nativeSetAudioRoute(
     JNIEnv* /*env*/, jclass /*clazz*/, jlong handle, jint route) {
     return static_cast<jint>(sentlog_set_audio_route(
