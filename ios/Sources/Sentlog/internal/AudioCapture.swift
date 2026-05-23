@@ -5,6 +5,13 @@ import Foundation
 /// native input format, converts to 16 kHz mono Float32 via
 /// AVAudioConverter, and forwards each frame to `pushFrame`.
 ///
+/// If `vad` is non-nil, captured audio is also fed into a Silero VAD
+/// chunker; full Silero chunks (512 samples) trigger inference and
+/// the resulting probability is delivered via `pushVad`. Inference
+/// runs inline in the AVAudioEngine tap callback (not the realtime
+/// audio I/O thread — AVAudioEngine taps run on a high-priority
+/// dispatch queue specifically so they can do non-trivial work).
+///
 /// AVAudioSession is configured for `.record` with mode `.measurement`
 /// — that disables iOS's voice processing (noise suppression, AGC,
 /// AEC) which would otherwise distort the audio in ways that break
@@ -14,19 +21,47 @@ import Foundation
 /// before `start()` is called; we surface the platform error if denied.
 internal final class AudioCapture {
 
-    private let pushFrame: (UnsafePointer<Float>?, Int) -> sentlog_status_t
+    typealias PushFrame  = (UnsafePointer<Float>?, Int) -> sentlog_status_t
+    typealias PushVad    = (UInt64, Int, Float) -> sentlog_status_t
+
+    private let pushFrame: PushFrame
+    private let pushVad:   PushVad?
+    private let vad:       SileroVadStream?
+    private var chunker:   SileroVadStream.Chunker?
 
     private let engine = AVAudioEngine()
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
     private var isRunning = false
 
-    init(pushFrame: @escaping (UnsafePointer<Float>?, Int) -> sentlog_status_t) {
+    init(pushFrame: @escaping PushFrame,
+         vad: SileroVadStream? = nil,
+         pushVad: PushVad? = nil) {
         self.pushFrame = pushFrame
+        self.vad = vad
+        self.pushVad = pushVad
+        if let vad, let pushVad {
+            self.chunker = SileroVadStream.Chunker { [weak vad] startSample, samples in
+                guard let vad else { return }
+                let prob: Float
+                do {
+                    prob = try vad.infer(samples)
+                } catch {
+                    // Silero failure on a single chunk shouldn't take
+                    // down capture; energy VAD remains the fallback in
+                    // the C++ pipeline.
+                    return
+                }
+                _ = pushVad(startSample, samples.count, prob)
+            }
+        }
     }
 
     func start() throws {
         guard !isRunning else { return }
+
+        chunker?.reset()
+        vad?.reset()
 
         #if os(iOS) || os(tvOS) || os(visionOS)
         let session = AVAudioSession.sharedInstance()
@@ -113,6 +148,11 @@ internal final class AudioCapture {
         let count = Int(outBuffer.frameLength)
         if count > 0 {
             _ = pushFrame(chData, count)
+            // VAD path runs inline; chunker callback handles inference
+            // and pushes results via pushVad. Failures inside the
+            // callback are swallowed there (energy VAD remains the
+            // fallback in the C++ pipeline).
+            chunker?.feed(chData, count: count)
         }
     }
 

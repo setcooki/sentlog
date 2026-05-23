@@ -24,8 +24,9 @@ public enum Sentlog {
     // concurrent lifecycle calls. The C++ core itself serialises
     // lifecycle internally; this lock is for the Swift wrapper's
     // own bookkeeping.
-    private static var handle: OpaquePointer?
-    private static var audio:  AudioCapture?
+    private static var handle:    OpaquePointer?
+    private static var audio:     AudioCapture?
+    private static var vadStream: SileroVadStream?
     private static var telemetry: NativeBridge.TelemetryBox?
     private static let stateLock = NSLock()
 
@@ -103,11 +104,42 @@ public enum Sentlog {
         let s = sentlog_start_capture(OpaquePointer(h))
         try NativeBridge.mustSucceed(s, "startCapture")
 
-        let cap = AudioCapture { samplesPtr, count in
-            sentlog_push_audio_frame(OpaquePointer(h), samplesPtr, count)
-        }
+        // Spin up a per-capture Silero session if the bundled model is
+        // available. Failures fall back to the C++ pipeline's energy
+        // VAD; see ADR 0009.
+        let silero = loadSileroIfAvailable()
+        vadStream = silero
+
+        let cap = AudioCapture(
+            pushFrame: { samplesPtr, count in
+                sentlog_push_audio_frame(OpaquePointer(h), samplesPtr, count)
+            },
+            vad: silero,
+            pushVad: silero == nil ? nil : { startSample, numSamples, prob in
+                sentlog_push_vad_frame(OpaquePointer(h),
+                                       Int(startSample),
+                                       numSamples,
+                                       prob)
+            }
+        )
         try cap.start()
         audio = cap
+    }
+
+    /// Try to load the bundled Silero VAD model. Returns nil if the
+    /// resource isn't found (degrades to energy VAD) or if ORT init
+    /// fails for any reason.
+    private static func loadSileroIfAvailable() -> SileroVadStream? {
+        guard let modelURL = Bundle.module.url(
+            forResource: "silero_vad", withExtension: "onnx"
+        ) else {
+            return nil
+        }
+        do {
+            return try SileroVadStream(modelPath: modelURL.path)
+        } catch {
+            return nil
+        }
     }
 
     /// Stop capture and run the evaluation pipeline. Returns when the
@@ -118,6 +150,7 @@ public enum Sentlog {
             defer { stateLock.unlock() }
             audio?.stop()
             audio = nil
+            vadStream = nil
             return try requireHandleLocked()
         }()
 
@@ -158,6 +191,7 @@ public enum Sentlog {
         defer { stateLock.unlock() }
         audio?.stop()
         audio = nil
+        vadStream = nil
         if let h = handle {
             sentlog_cancel(h)
         }
@@ -235,6 +269,7 @@ public enum Sentlog {
     private static func destroyLocked() {
         audio?.stop()
         audio = nil
+        vadStream = nil
         if let h = handle {
             sentlog_destroy(h)
             handle = nil
