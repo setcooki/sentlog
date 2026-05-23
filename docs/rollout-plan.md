@@ -61,7 +61,13 @@ Sub-chunked for shippable increments:
     `tools/aasist-conversion/convert-aasist-l.py` to generate
     `aasist_l.onnx` and commit it.
 - **1f**: Audio input route detection wired through the C ABI.
-- **1g**: **Benchmark gate (§2) executed.** Recorded in
+- **1g**: **Benchmark gate (§2) executed.** Harness:
+  `android/benchmarks/` module (androidx.benchmark.junit4) with
+  `SentlogPipelineBenchmark` running the warm/cold/peak-memory tests
+  over a synthetic 15 s workload per §2.2. Threshold checker:
+  `tools/benchmark/check-thresholds.py` reads the JSON output and
+  emits per-device verdicts. Operator runbook:
+  `docs/benchmarks/README.md`. Results recorded in
   `docs/benchmarks/wk2.md`.
 
 Exit: `Sentlog.evaluate()` returns a populated `SentlogResult` with

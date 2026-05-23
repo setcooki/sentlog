@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Benchmark module instrumentation manifest. Declares RECORD_AUDIO
+  even though the benchmark synthesises its own audio in-process —
+  the SDK's AudioCapture path still flows through AudioRecord-aware
+  code and the permission must be grantable on the device.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+</manifest>

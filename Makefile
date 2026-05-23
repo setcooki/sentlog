@@ -64,7 +64,9 @@ test-bridges:
 	@echo "[test-bridges] Phase 0 stub"
 
 benchmark:
-	@echo "[benchmark] Phase 0 stub — wires up in Phase 1"
+	@cd android && gradle :benchmarks:connectedReleaseAndroidTest \
+		-Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=DEBUGGABLE,EMULATOR
+	@echo "[benchmark] done. Run tools/benchmark/check-thresholds.py on the JSON output."
 
 verify:
 	@echo "[verify] Phase 0 stub — wires up in Phase 7"

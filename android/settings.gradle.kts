@@ -16,5 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "sentlog-android"
 
 include(":sentlog")
-// :benchmarks module reserved for the Phase 1 benchmark gate; not
-// included in the build until that chunk lands.
+include(":benchmarks")
