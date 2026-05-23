@@ -99,10 +99,26 @@ VadReport vad_report_from_pushed(const std::vector<PushedVadFrame>& pushed,
 
 }  // namespace
 
+namespace {
+
+float audio_source_from_route(sentlog_audio_route_t route) {
+    switch (route) {
+        case SENTLOG_AUDIO_ROUTE_BUILT_IN:   return 1.0f;
+        case SENTLOG_AUDIO_ROUTE_USB:        return 0.2f;
+        case SENTLOG_AUDIO_ROUTE_BLUETOOTH:  return 0.2f;
+        case SENTLOG_AUDIO_ROUTE_LOOPBACK:   return 0.0f;
+        case SENTLOG_AUDIO_ROUTE_UNKNOWN:    return 0.0f;
+    }
+    return 0.0f;
+}
+
+}  // namespace
+
 std::string Pipeline::run(const Config& config,
                           RingBuffer& ring,
                           const std::vector<PushedVadFrame>& pushed_vad,
-                          const std::optional<PushedLiveness>& pushed_liveness) {
+                          const std::optional<PushedLiveness>& pushed_liveness,
+                          sentlog_audio_route_t audio_route) {
     // 1. Drain audio.
     const std::vector<float> audio = drain_audio(ring);
     const int duration_ms = static_cast<int>(
@@ -159,14 +175,17 @@ std::string Pipeline::run(const Config& config,
         result["liveness"] = l;
     }
 
-    // 6. Presence — audio_source is always 1.0 from the C++ core's
-    //    perspective (the platform binding is the only thing that
-    //    actually knows the input route; chunk 5 wires it through).
-    //    Motion + integrity stay null in this chunk.
+    // 6. Presence — audio_source derived from the platform-pushed
+    //    audio route (chunk 1f). Built-in mic = 1.0; USB/BT = 0.2;
+    //    loopback/unknown = 0.0. Motion + integrity stay null in
+    //    this chunk; they land in their respective phases.
     {
+        const float audio_source = audio_source_from_route(audio_route);
         json p;
-        p["summary"]      = 1.0f;
-        p["audio_source"] = 1.0f;
+        p["audio_source"] = audio_source;
+        // summary is the ensemble of populated sub-fields; for now
+        // only audio_source is populated, so summary = audio_source.
+        p["summary"]      = audio_source;
         result["presence"] = p;
     }
 

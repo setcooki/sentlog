@@ -39,7 +39,8 @@ public:
     static std::string run(const Config& config,
                            RingBuffer& ring,
                            const std::vector<PushedVadFrame>& pushed_vad,
-                           const std::optional<PushedLiveness>& pushed_liveness);
+                           const std::optional<PushedLiveness>& pushed_liveness,
+                           sentlog_audio_route_t audio_route);
 };
 
 }  // namespace sentlog::internal

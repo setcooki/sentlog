@@ -105,6 +105,18 @@ public:
     /// Snapshot the pushed liveness result, or std::nullopt if none.
     std::optional<PushedLiveness> snapshot_liveness() const;
 
+    /// Record the current audio input route. Pushed by the platform
+    /// binding at startCapture and on route changes. Safe to call any
+    /// time after construction.
+    void set_audio_route(sentlog_audio_route_t route) noexcept {
+        audio_route_.store(static_cast<int>(route),
+                           std::memory_order_release);
+    }
+    sentlog_audio_route_t audio_route() const noexcept {
+        return static_cast<sentlog_audio_route_t>(
+            audio_route_.load(std::memory_order_acquire));
+    }
+
     // --- Read-only state queries (any thread) ---
 
     LifecyclePhase phase() const noexcept {
@@ -143,6 +155,12 @@ private:
 
     mutable std::mutex liveness_mutex_;
     std::optional<PushedLiveness> pushed_liveness_;
+
+    /// Default: UNKNOWN. The platform binding pushes the real route
+    /// at startCapture; integrators that never push see audio_source
+    /// = 0.0 in the result.
+    std::atomic<int> audio_route_{
+        static_cast<int>(SENTLOG_AUDIO_ROUTE_UNKNOWN)};
 
     mutable std::mutex telemetry_mutex_;
 };

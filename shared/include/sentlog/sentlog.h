@@ -199,6 +199,33 @@ sentlog_status_t sentlog_push_liveness_result(
     float replay_risk,
     float synthetic_risk);
 
+/* Audio input route the platform-side capture is using. The C++ core
+ * cannot detect this itself — it only sees the float samples — so the
+ * binding pushes the route via sentlog_set_audio_route. The pipeline
+ * maps each route to a presence.audio_source probability per the
+ * defaults in docs/whitepaper.md §6.1:
+ *   - SENTLOG_AUDIO_ROUTE_BUILT_IN:   audio_source = 1.0
+ *   - SENTLOG_AUDIO_ROUTE_USB:        audio_source = 0.2
+ *   - SENTLOG_AUDIO_ROUTE_BLUETOOTH:  audio_source = 0.2
+ *   - SENTLOG_AUDIO_ROUTE_LOOPBACK:   audio_source = 0.0
+ *   - SENTLOG_AUDIO_ROUTE_UNKNOWN:    audio_source = 0.0
+ * Integrators can override the per-route mapping via scoring_weights
+ * (presence.audio_source.* keys; future, not v1.0). */
+typedef enum {
+    SENTLOG_AUDIO_ROUTE_UNKNOWN    = 0,
+    SENTLOG_AUDIO_ROUTE_BUILT_IN   = 1,
+    SENTLOG_AUDIO_ROUTE_USB        = 2,
+    SENTLOG_AUDIO_ROUTE_BLUETOOTH  = 3,
+    SENTLOG_AUDIO_ROUTE_LOOPBACK   = 4,
+} sentlog_audio_route_t;
+
+/* Set the audio input route the platform binding is using. Call at
+ * start_capture and again if the route changes mid-capture (rare on
+ * iOS; possible on Android when a headset is plugged in mid-session). */
+sentlog_status_t sentlog_set_audio_route(
+    sentlog_handle_t* handle,
+    sentlog_audio_route_t route);
+
 /* Stop capture and run evaluation. Result arrives via cb on the I/O thread. */
 sentlog_status_t sentlog_evaluate(
     sentlog_handle_t* handle,

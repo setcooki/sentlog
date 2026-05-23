@@ -43,7 +43,16 @@ internal object NativeBridge {
     @JvmStatic external fun nativeStartCapture(handle: Long): Int
     @JvmStatic external fun nativePushAudioFrame(handle: Long, samples: FloatArray, numSamples: Int): Int
     @JvmStatic external fun nativePushVadFrame(handle: Long, startSample: Long, numSamples: Int, probability: Float): Int
+    @JvmStatic external fun nativePushLivenessResult(handle: Long, score: Float, replayRisk: Float, syntheticRisk: Float): Int
+    @JvmStatic external fun nativeSetAudioRoute(handle: Long, route: Int): Int
     @JvmStatic external fun nativeEvaluate(handle: Long, resultCb: ResultCallback): Int
+
+    // Mirrors sentlog_audio_route_t in sentlog.h.
+    const val AUDIO_ROUTE_UNKNOWN   = 0
+    const val AUDIO_ROUTE_BUILT_IN  = 1
+    const val AUDIO_ROUTE_USB       = 2
+    const val AUDIO_ROUTE_BLUETOOTH = 3
+    const val AUDIO_ROUTE_LOOPBACK  = 4
     @JvmStatic external fun nativeCancel(handle: Long)
     @JvmStatic external fun nativeGetPermissions(handle: Long): String?
     @JvmStatic external fun nativeGetCapabilities(handle: Long): String?

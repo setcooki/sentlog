@@ -60,8 +60,10 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
     try {
         const auto pushed_vad      = snapshot_vad_frames();
         const auto pushed_liveness = snapshot_liveness();
+        const auto route           = audio_route();
         *result_json_out = Pipeline::run(config_, ring_,
-                                         pushed_vad, pushed_liveness);
+                                         pushed_vad, pushed_liveness,
+                                         route);
     } catch (...) {
         phase_.store(static_cast<int>(LifecyclePhase::Idle),
                      std::memory_order_release);

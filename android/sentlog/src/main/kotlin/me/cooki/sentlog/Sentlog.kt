@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import me.cooki.sentlog.internal.AudioCapture
+import me.cooki.sentlog.internal.AudioRouteDetector
 import me.cooki.sentlog.internal.NativeBridge
 import me.cooki.sentlog.internal.ResultCallback
 import me.cooki.sentlog.internal.SileroVadStream
@@ -49,6 +50,7 @@ public object Sentlog {
     private var audio: AudioCapture? = null
     private var vadStream: SileroVadStream? = null
     private var sileroModelBytes: ByteArray? = null
+    private var appContext: Context? = null
     private var userTelemetry: ((TelemetryEvent) -> Unit)? = null
 
     /** SDK version string. */
@@ -76,6 +78,7 @@ public object Sentlog {
         if (handle != 0L) destroyLocked()
 
         userTelemetry = onTelemetry
+        appContext = context?.applicationContext
 
         // Load the Silero VAD ONNX model bytes once and cache them.
         // The OrtSession is created later, per startCapture, so it can
@@ -127,6 +130,14 @@ public object Sentlog {
                 throw IllegalStateException("startCapture called while not idle")
             else ->
                 throw IllegalStateException("startCapture failed (status=$s)")
+        }
+
+        // Push the current audio input route so the C++ pipeline can
+        // populate presence.audio_source. Without this push the route
+        // stays UNKNOWN → audio_source = 0.0 in the result.
+        appContext?.let { ctx ->
+            val route = AudioRouteDetector.detect(ctx)
+            NativeBridge.nativeSetAudioRoute(h, route)
         }
 
         // If we have the Silero model loaded, spin up an inference

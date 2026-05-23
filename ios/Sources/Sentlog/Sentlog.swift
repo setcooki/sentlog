@@ -104,6 +104,12 @@ public enum Sentlog {
         let s = sentlog_start_capture(OpaquePointer(h))
         try NativeBridge.mustSucceed(s, "startCapture")
 
+        // Push the current audio input route so the C++ pipeline can
+        // populate presence.audio_source. Without this push the route
+        // stays UNKNOWN → audio_source = 0.0 in the result.
+        let route = AudioRouteDetector.detect()
+        _ = sentlog_set_audio_route(h, route)
+
         // Spin up a per-capture Silero session if the bundled model is
         // available. Failures fall back to the C++ pipeline's energy
         // VAD; see ADR 0009.

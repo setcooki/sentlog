@@ -233,6 +233,25 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativePushVadFrame(
 }
 
 JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativePushLivenessResult(
+    JNIEnv* /*env*/, jclass /*clazz*/, jlong handle,
+    jfloat score, jfloat replay_risk, jfloat synthetic_risk) {
+    return static_cast<jint>(sentlog_push_liveness_result(
+        native_from_jlong(handle),
+        static_cast<float>(score),
+        static_cast<float>(replay_risk),
+        static_cast<float>(synthetic_risk)));
+}
+
+JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativeSetAudioRoute(
+    JNIEnv* /*env*/, jclass /*clazz*/, jlong handle, jint route) {
+    return static_cast<jint>(sentlog_set_audio_route(
+        native_from_jlong(handle),
+        static_cast<sentlog_audio_route_t>(route)));
+}
+
+JNIEXPORT jint JNICALL
 Java_me_cooki_sentlog_internal_NativeBridge_nativePushAudioFrame(
     JNIEnv* env, jclass /*clazz*/, jlong handle,
     jfloatArray samples, jint num_samples) {

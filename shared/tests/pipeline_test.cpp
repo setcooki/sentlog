@@ -356,3 +356,65 @@ TEST(PipelineTest, PushLivenessOutsideCaptureFailsLifecycle) {
               SENTLOG_ERR_INVALID_STATE);
     sentlog_destroy(h);
 }
+
+// --- Audio route → presence.audio_source mapping (chunk 1f) ---
+
+static void run_with_route(sentlog_audio_route_t route,
+                           Capture& cap) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    EXPECT_EQ(sentlog_set_audio_route(h, route), SENTLOG_OK);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, AudioSourceFromBuiltInMicIsOne) {
+    Capture cap;
+    run_with_route(SENTLOG_AUDIO_ROUTE_BUILT_IN, cap);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FLOAT_EQ(j["presence"]["audio_source"].get<float>(), 1.0f);
+}
+
+TEST(PipelineTest, AudioSourceFromUsbIsLow) {
+    Capture cap;
+    run_with_route(SENTLOG_AUDIO_ROUTE_USB, cap);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FLOAT_EQ(j["presence"]["audio_source"].get<float>(), 0.2f);
+}
+
+TEST(PipelineTest, AudioSourceFromBluetoothIsLow) {
+    Capture cap;
+    run_with_route(SENTLOG_AUDIO_ROUTE_BLUETOOTH, cap);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FLOAT_EQ(j["presence"]["audio_source"].get<float>(), 0.2f);
+}
+
+TEST(PipelineTest, AudioSourceFromLoopbackIsZero) {
+    Capture cap;
+    run_with_route(SENTLOG_AUDIO_ROUTE_LOOPBACK, cap);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FLOAT_EQ(j["presence"]["audio_source"].get<float>(), 0.0f);
+}
+
+TEST(PipelineTest, NoRoutePushedDefaultsToZero) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FLOAT_EQ(j["presence"]["audio_source"].get<float>(), 0.0f);
+
+    sentlog_destroy(h);
+}
