@@ -17,6 +17,8 @@ add_executable(sentlog_tests
     ring_buffer_test.cpp
     config_test.cpp
     c_api_test.cpp
+    vad_test.cpp
+    pipeline_test.cpp
 )
 target_link_libraries(sentlog_tests
     PRIVATE

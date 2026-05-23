@@ -48,6 +48,8 @@ add_library(sentlog STATIC
     src/internal/ring_buffer.cpp
     src/internal/state.cpp
     src/internal/config.cpp
+    src/internal/pipeline.cpp
+    src/internal/vad/energy_vad.cpp
 )
 target_include_directories(sentlog
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

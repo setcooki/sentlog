@@ -161,10 +161,13 @@ TEST(CApiTest, DoubleStartCaptureIsLifecycleError) {
     sentlog_destroy(h);
 }
 
-TEST(CApiTest, EvaluateCallbackFiresWithNotImplementedStub) {
-    // Phase 1 stub: evaluate returns ERR_INTERNAL via the callback
-    // until the pipeline lands. Verifies the wiring is correct so
-    // bindings can be built against it.
+TEST(CApiTest, EvaluateCallbackFiresWithRealResult) {
+    // With the Phase 1 pipeline in place, evaluate() on an empty
+    // capture fires the callback with OK and a result whose
+    // diagnostics.failure_reason is "TooShort" (default min_duration_ms
+    // is 5000; the drained ring contained 0ms of audio). End-to-end
+    // wiring is what's being verified here; the pipeline-content
+    // tests live in pipeline_test.cpp.
     sentlog_status_t status = SENTLOG_OK;
     sentlog_handle_t* h =
         sentlog_create(kValidConfig, nullptr, nullptr, &status);
@@ -174,7 +177,8 @@ TEST(CApiTest, EvaluateCallbackFiresWithNotImplementedStub) {
     sentlog_start_capture(h);
     EXPECT_EQ(sentlog_evaluate(h, result_cb, &cap), SENTLOG_OK);
     EXPECT_TRUE(cap.called);
-    EXPECT_EQ(cap.status, SENTLOG_ERR_INTERNAL);
+    EXPECT_EQ(cap.status, SENTLOG_OK);
+    EXPECT_FALSE(cap.result_json.empty());
     sentlog_destroy(h);
 }
 

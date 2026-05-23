@@ -63,3 +63,8 @@ production (see the §9.4 escape valves in the rollout plan).
 - Validate the iOS performance margin against an Apple-platform-native
   ASR alternative once the iOS build is real, so we know how much
   headroom we'd have by switching iOS if forced.
+- whisper.cpp, Silero VAD, AASIST-L all run via the same ONNX Runtime
+  Mobile / ggml integration. Distribute the C++ runtime once and
+  amortise across all three. The Phase 1 chunk that integrates
+  ONNX Runtime (Silero + AASIST-L) lands the cross-platform binary
+  distribution that whisper.cpp will then build on top of.

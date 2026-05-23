@@ -2,6 +2,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "internal/pipeline.h"
+
 namespace sentlog::internal {
 
 namespace {
@@ -32,6 +34,32 @@ sentlog_status_t State::cancel() {
     phase_.store(static_cast<int>(LifecyclePhase::Idle),
                  std::memory_order_release);
     ring_.reset();
+    return SENTLOG_OK;
+}
+
+sentlog_status_t State::evaluate(std::string* result_json_out) {
+    if (result_json_out == nullptr) return SENTLOG_ERR_INTERNAL;
+
+    // Move from Capturing → Evaluating. Lifecycle violation if we're
+    // somewhere else. cancel() puts us back to Idle on failure paths.
+    int expected = static_cast<int>(LifecyclePhase::Capturing);
+    const int desired = static_cast<int>(LifecyclePhase::Evaluating);
+    if (!phase_.compare_exchange_strong(expected, desired,
+                                        std::memory_order_acq_rel)) {
+        return SENTLOG_ERR_INVALID_STATE;
+    }
+
+    try {
+        *result_json_out = Pipeline::run(config_, ring_);
+    } catch (...) {
+        phase_.store(static_cast<int>(LifecyclePhase::Idle),
+                     std::memory_order_release);
+        return SENTLOG_ERR_INTERNAL;
+    }
+
+    ring_.reset();
+    phase_.store(static_cast<int>(LifecyclePhase::Idle),
+                 std::memory_order_release);
     return SENTLOG_OK;
 }
 

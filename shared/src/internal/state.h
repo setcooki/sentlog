@@ -55,6 +55,12 @@ public:
     sentlog_status_t start_capture();
     sentlog_status_t cancel();
 
+    /// Run the evaluation pipeline and return a JSON-encoded
+    /// SentlogResult. NOT real-time-safe — pulls from the ring buffer,
+    /// runs VAD, computes diagnostics, assembles the result. Returns
+    /// SENTLOG_ERR_INVALID_STATE if called outside a capture.
+    sentlog_status_t evaluate(std::string* result_json_out);
+
     // --- Audio push (real-time thread; safe in parallel with anything else) ---
 
     sentlog_status_t push_audio(const float* samples, size_t num_samples);

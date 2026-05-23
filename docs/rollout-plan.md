@@ -32,16 +32,30 @@ Exit: empty SDK builds and publishes a snapshot artefact from CI.
 
 ### Phase 1 — Liveness path + Android benchmark gate (Weeks 1–2)
 
-- Audio capture on both platforms into the C++ ring buffer.
-- Silero VAD integrated.
-- AASIST-L liveness model integrated using the upstream MIT-licensed
-  `AASIST-L.pth` checkpoint from `clovaai/aasist` (see ADR 0004).
-- Audio input route detection wired.
-- **Benchmark gate (§2) executed.** Recorded in `docs/benchmarks/wk2.md`.
+Sub-chunked for shippable increments:
+
+- **1a**: shared C++ core skeleton (ring buffer, state machine, config
+  validation, C ABI implementation, gtest harness).
+- **1b**: Android binding — Kotlin public API, JNI bridge, externalNativeBuild
+  pulling in the shared core, AudioRecord capture at 16 kHz mono PCM_FLOAT.
+- **1c**: iOS binding — Swift package depending on shared (local SwiftPM
+  dep), AVAudioEngine capture with format conversion, XCTest coverage.
+- **1d**: VAD interface + reference energy-based implementation,
+  evaluation pipeline orchestrator that drains the ring buffer,
+  populated diagnostics (duration, SNR, audio_quality), schema-complete
+  `SentlogResult` with placeholder ML scores. **Silero ONNX upgrade
+  deferred — shares the ORT integration with chunk 1e (AASIST-L).**
+- **1e**: ONNX Runtime integration — Silero VAD swap-in, AASIST-L
+  liveness, model-file distribution per platform.
+- **1f**: Audio input route detection wired through the C ABI.
+- **1g**: **Benchmark gate (§2) executed.** Recorded in
+  `docs/benchmarks/wk2.md`.
 
 Exit: `Sentlog.evaluate()` returns a populated `SentlogResult` with
-real `liveness`, real `presence.audio_source`, and stubs elsewhere.
-Benchmark gate is **pass** or formal architecture review triggered.
+real `liveness`, real `presence.audio_source`, and the rest of the
+fields either real or marked as placeholder via
+`engagement.model_status`. Benchmark gate is **pass** or formal
+architecture review triggered.
 
 ### Phase 2 — Transcription + transcript exposure + direction (Weeks 3–4)
 

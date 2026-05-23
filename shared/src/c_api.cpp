@@ -110,12 +110,18 @@ sentlog_status_t sentlog_evaluate(sentlog_handle_t* handle,
                                   void* userdata) {
     if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
     if (cb == nullptr)     return SENTLOG_ERR_INVALID_CONFIG;
-    // Phase 1: the evaluation pipeline (VAD → ASR → liveness →
-    // scoring) lands in subsequent chunks. Until then, evaluate()
-    // returns NOT_IMPLEMENTED via the callback so bindings can
-    // exercise the wiring end to end.
-    (void)handle;
-    cb(SENTLOG_ERR_INTERNAL, nullptr, userdata);
+    std::string result_json;
+    sentlog_status_t status;
+    try {
+        status = handle->state->evaluate(&result_json);
+    } catch (...) {
+        status = SENTLOG_ERR_INTERNAL;
+    }
+    if (status == SENTLOG_OK) {
+        cb(SENTLOG_OK, result_json.c_str(), userdata);
+    } else {
+        cb(status, nullptr, userdata);
+    }
     return SENTLOG_OK;
 }
 
