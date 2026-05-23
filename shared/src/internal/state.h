@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,15 @@ struct PushedVadFrame {
     size_t start_sample;
     size_t num_samples;
     float  probability;
+};
+
+/// The utterance-level liveness scoring result pushed by the
+/// platform-side ONNX inference (AASIST-L). At most one per
+/// evaluation.
+struct PushedLiveness {
+    float score;
+    float replay_risk;
+    float synthetic_risk;
 };
 
 // 30 seconds of 16 kHz audio = 480 000 samples. Round up to 524 288
@@ -84,6 +94,17 @@ public:
     /// Safe to call from the evaluation thread.
     std::vector<PushedVadFrame> snapshot_vad_frames() const;
 
+    /// Push the utterance-level liveness result from platform-side
+    /// ONNX inference (AASIST-L). At most one per evaluation; later
+    /// pushes overwrite earlier ones. Must be called between
+    /// startCapture and evaluate (typically immediately before).
+    sentlog_status_t push_liveness_result(float score,
+                                          float replay_risk,
+                                          float synthetic_risk);
+
+    /// Snapshot the pushed liveness result, or std::nullopt if none.
+    std::optional<PushedLiveness> snapshot_liveness() const;
+
     // --- Read-only state queries (any thread) ---
 
     LifecyclePhase phase() const noexcept {
@@ -119,6 +140,9 @@ private:
 
     mutable std::mutex vad_mutex_;
     std::vector<PushedVadFrame> pushed_vad_frames_;
+
+    mutable std::mutex liveness_mutex_;
+    std::optional<PushedLiveness> pushed_liveness_;
 
     mutable std::mutex telemetry_mutex_;
 };

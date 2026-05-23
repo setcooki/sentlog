@@ -261,3 +261,98 @@ TEST(PipelineTest, PushVadOutsideCaptureFailsLifecycle) {
 
     sentlog_destroy(h);
 }
+
+// --- Pushed liveness (platform-side AASIST-L inference, per ADR 0009) ---
+
+TEST(PipelineTest, PushedLivenessReplacesPlaceholder) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    ASSERT_EQ(sentlog_push_liveness_result(h, 0.92f, 0.03f, 0.05f),
+              SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_FLOAT_EQ(j["liveness"]["score"].get<float>(),          0.92f);
+    EXPECT_FLOAT_EQ(j["liveness"]["replay_risk"].get<float>(),    0.03f);
+    EXPECT_FLOAT_EQ(j["liveness"]["synthetic_risk"].get<float>(), 0.05f);
+    EXPECT_EQ(j["model_versions"]["liveness"], "aasist-l-platform-onnx");
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, NoPushedLivenessKeepsPlaceholderAndFlagsIt) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_FLOAT_EQ(j["liveness"]["score"].get<float>(), 0.5f);
+    EXPECT_EQ(j["model_versions"]["liveness"], "placeholder-not-loaded");
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushedLivenessClampedToValidRange) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    // Out-of-range inputs — the C++ side clamps to [0,1] so the
+    // pipeline can't emit nonsense to integrators.
+    ASSERT_EQ(sentlog_push_liveness_result(h, 2.0f, -0.5f, 1.5f),
+              SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FLOAT_EQ(j["liveness"]["score"].get<float>(),          1.0f);
+    EXPECT_FLOAT_EQ(j["liveness"]["replay_risk"].get<float>(),    0.0f);
+    EXPECT_FLOAT_EQ(j["liveness"]["synthetic_risk"].get<float>(), 1.0f);
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushedLivenessLastWriteWins) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    sentlog_push_liveness_result(h, 0.10f, 0.90f, 0.80f);  // first
+    sentlog_push_liveness_result(h, 0.95f, 0.02f, 0.03f);  // second wins
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FLOAT_EQ(j["liveness"]["score"].get<float>(), 0.95f);
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushLivenessOutsideCaptureFailsLifecycle) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    EXPECT_EQ(sentlog_push_liveness_result(h, 0.5f, 0.0f, 0.0f),
+              SENTLOG_ERR_INVALID_STATE);
+    sentlog_destroy(h);
+}

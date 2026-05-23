@@ -101,7 +101,8 @@ VadReport vad_report_from_pushed(const std::vector<PushedVadFrame>& pushed,
 
 std::string Pipeline::run(const Config& config,
                           RingBuffer& ring,
-                          const std::vector<PushedVadFrame>& pushed_vad) {
+                          const std::vector<PushedVadFrame>& pushed_vad,
+                          const std::optional<PushedLiveness>& pushed_liveness) {
     // 1. Drain audio.
     const std::vector<float> audio = drain_audio(ring);
     const int duration_ms = static_cast<int>(
@@ -140,12 +141,21 @@ std::string Pipeline::run(const Config& config,
         result["transcript"] = t;
     }
 
-    // 5. Liveness — placeholder. AASIST-L lands in chunk 4.
+    // 5. Liveness — pushed AASIST-L result if present; otherwise
+    //    a placeholder (0.5 / 0 / 0). model_versions.liveness below
+    //    reflects which path ran so integrators don't surface the
+    //    placeholder as if it were real.
     {
         json l;
-        l["score"]          = 0.5f;
-        l["replay_risk"]    = 0.0f;
-        l["synthetic_risk"] = 0.0f;
+        if (pushed_liveness.has_value()) {
+            l["score"]          = pushed_liveness->score;
+            l["replay_risk"]    = pushed_liveness->replay_risk;
+            l["synthetic_risk"] = pushed_liveness->synthetic_risk;
+        } else {
+            l["score"]          = 0.5f;
+            l["replay_risk"]    = 0.0f;
+            l["synthetic_risk"] = 0.0f;
+        }
         result["liveness"] = l;
     }
 
@@ -189,7 +199,9 @@ std::string Pipeline::run(const Config& config,
     //    integrators can correlate evidence across upgrades.
     {
         json mv;
-        mv["liveness"] = "0.0.0-phase1-not-loaded";
+        mv["liveness"] = pushed_liveness.has_value()
+            ? "aasist-l-platform-onnx"
+            : "placeholder-not-loaded";
         mv["asr"]      = "0.0.0-phase1-not-loaded";
         mv["prosody"]  = "0.0.0-phase1-not-loaded";
         mv["vad"]      = used_pushed_vad

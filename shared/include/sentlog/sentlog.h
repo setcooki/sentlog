@@ -181,6 +181,24 @@ sentlog_status_t sentlog_push_vad_frame(
     size_t num_samples,
     float probability);
 
+/* Push the liveness scoring result from platform-side ONNX inference
+ * (AASIST-L). Liveness is utterance-level, not per-frame — call once
+ * per evaluate, after audio capture has stopped, before calling
+ * sentlog_evaluate. The pipeline uses pushed liveness when present;
+ * absent the push, the result carries a 0.5 placeholder with the
+ * model_versions.liveness field reflecting that nothing real ran.
+ *
+ * See ADR 0009.
+ *
+ *   score           Overall liveness, [0.0, 1.0]. 1.0 = genuine.
+ *   replay_risk     Replay-attack risk, [0.0, 1.0]. 1.0 = high risk.
+ *   synthetic_risk  TTS/voice-clone risk, [0.0, 1.0]. 1.0 = high risk. */
+sentlog_status_t sentlog_push_liveness_result(
+    sentlog_handle_t* handle,
+    float score,
+    float replay_risk,
+    float synthetic_risk);
+
 /* Stop capture and run evaluation. Result arrives via cb on the I/O thread. */
 sentlog_status_t sentlog_evaluate(
     sentlog_handle_t* handle,

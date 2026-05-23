@@ -11,6 +11,7 @@
 #ifndef SENTLOG_INTERNAL_PIPELINE_H
 #define SENTLOG_INTERNAL_PIPELINE_H
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -28,11 +29,17 @@ public:
     ///
     /// If `pushed_vad` is non-empty, the pipeline uses those
     /// probabilities (from platform-side ONNX inference, e.g. Silero)
-    /// instead of the built-in energy VAD. The model_versions field in
-    /// the result reflects which path was used.
+    /// instead of the built-in energy VAD.
+    ///
+    /// If `pushed_liveness` is set, the pipeline populates the
+    /// result's `liveness` block from it (from platform-side
+    /// AASIST-L inference). Otherwise the block carries a placeholder
+    /// with `model_versions.liveness` reflecting that nothing real
+    /// ran.
     static std::string run(const Config& config,
                            RingBuffer& ring,
-                           const std::vector<PushedVadFrame>& pushed_vad);
+                           const std::vector<PushedVadFrame>& pushed_vad,
+                           const std::optional<PushedLiveness>& pushed_liveness);
 };
 
 }  // namespace sentlog::internal

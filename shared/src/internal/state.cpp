@@ -30,6 +30,10 @@ sentlog_status_t State::start_capture() {
         std::lock_guard<std::mutex> lock(vad_mutex_);
         pushed_vad_frames_.clear();
     }
+    {
+        std::lock_guard<std::mutex> lock(liveness_mutex_);
+        pushed_liveness_.reset();
+    }
     return SENTLOG_OK;
 }
 
@@ -54,8 +58,10 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
     }
 
     try {
-        const auto pushed = snapshot_vad_frames();
-        *result_json_out = Pipeline::run(config_, ring_, pushed);
+        const auto pushed_vad      = snapshot_vad_frames();
+        const auto pushed_liveness = snapshot_liveness();
+        *result_json_out = Pipeline::run(config_, ring_,
+                                         pushed_vad, pushed_liveness);
     } catch (...) {
         phase_.store(static_cast<int>(LifecyclePhase::Idle),
                      std::memory_order_release);
@@ -66,6 +72,10 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
     {
         std::lock_guard<std::mutex> lock(vad_mutex_);
         pushed_vad_frames_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(liveness_mutex_);
+        pushed_liveness_.reset();
     }
     phase_.store(static_cast<int>(LifecyclePhase::Idle),
                  std::memory_order_release);
@@ -100,6 +110,29 @@ sentlog_status_t State::push_vad_frame(size_t start_sample,
 std::vector<PushedVadFrame> State::snapshot_vad_frames() const {
     std::lock_guard<std::mutex> lock(vad_mutex_);
     return pushed_vad_frames_;
+}
+
+sentlog_status_t State::push_liveness_result(float score,
+                                             float replay_risk,
+                                             float synthetic_risk) {
+    if (phase() != LifecyclePhase::Capturing) {
+        return SENTLOG_ERR_INVALID_STATE;
+    }
+    auto clamp = [](float v) {
+        if (v < 0.0f) return 0.0f;
+        if (v > 1.0f) return 1.0f;
+        return v;
+    };
+    std::lock_guard<std::mutex> lock(liveness_mutex_);
+    pushed_liveness_ = PushedLiveness{
+        clamp(score), clamp(replay_risk), clamp(synthetic_risk)
+    };
+    return SENTLOG_OK;
+}
+
+std::optional<PushedLiveness> State::snapshot_liveness() const {
+    std::lock_guard<std::mutex> lock(liveness_mutex_);
+    return pushed_liveness_;
 }
 
 std::string State::permissions_json() const {
