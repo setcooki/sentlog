@@ -1,4 +1,5 @@
 import XCTest
+import SentlogCore
 @testable import Sentlog
 
 /// End-to-end exercise of the Swift wrapper against the real C++
