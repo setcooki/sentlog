@@ -61,7 +61,7 @@ internal final class AasistLivenessRunner {
                           userInfo: [NSLocalizedDescriptionKey:
                               "AASIST-L output 'logits' missing"])
         }
-        let logitsData = try logitsValue.tensorData()
+        let logitsData = try logitsValue.tensorData() as Data
         // logits: float32 [1, 2] — index 0 = genuine, 1 = spoof.
         let logits = logitsData.withUnsafeBytes { ptr -> (Float, Float) in
             let base = ptr.baseAddress!.bindMemory(to: Float.self, capacity: 2)

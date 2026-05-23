@@ -103,7 +103,9 @@ internal final class SileroVadStream {
         }
 
         // output: float32 [1, 1] — single speech probability.
-        let outData = try outValue.tensorData()
+        // ORT returns NSMutableData; bridge to Swift Data for
+        // withUnsafeBytes.
+        let outData = try outValue.tensorData() as Data
         let prob: Float = outData.withUnsafeBytes { rawPtr -> Float in
             rawPtr.load(as: Float.self)
         }

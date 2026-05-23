@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import SentlogCore   // sentlog_status_t from shared/include/sentlog/sentlog.h
 
 /// Real-time audio capture using AVAudioEngine. Captures the device's
 /// native input format, converts to 16 kHz mono Float32 via
