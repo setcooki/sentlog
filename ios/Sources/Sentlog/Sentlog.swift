@@ -91,7 +91,7 @@ public enum Sentlog {
             telemetry = nil
             throw SentlogError(status: status, context: "initialize")
         }
-        handle = OpaquePointer(h)
+        handle = h
     }
 
     /// Start audio capture. Throws if not initialised, if lifecycle
@@ -101,7 +101,7 @@ public enum Sentlog {
         defer { stateLock.unlock() }
 
         let h = try requireHandleLocked()
-        let s = sentlog_start_capture(OpaquePointer(h))
+        let s = sentlog_start_capture(h)
         try NativeBridge.mustSucceed(s, "startCapture")
 
         // Push the current audio input route so the C++ pipeline can
@@ -118,11 +118,11 @@ public enum Sentlog {
 
         let cap = AudioCapture(
             pushFrame: { samplesPtr, count in
-                sentlog_push_audio_frame(OpaquePointer(h), samplesPtr, count)
+                sentlog_push_audio_frame(h, samplesPtr, count)
             },
             vad: silero,
             pushVad: silero == nil ? nil : { startSample, numSamples, prob in
-                sentlog_push_vad_frame(OpaquePointer(h),
+                sentlog_push_vad_frame(h,
                                        Int(startSample),
                                        numSamples,
                                        prob)
