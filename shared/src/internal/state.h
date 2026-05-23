@@ -45,6 +45,24 @@ struct PushedLiveness {
     float synthetic_risk;
 };
 
+/// One aligned word from platform-side ASR. Times are relative to
+/// capture start.
+struct PushedWordTiming {
+    std::string word;
+    int32_t     start_ms;
+    int32_t     end_ms;
+};
+
+/// The transcript pushed by platform-side ASR (whisper.cpp). At
+/// most one per evaluation. target_match is intentionally absent —
+/// it's derived in the pipeline from text + config.target_phrase.
+struct PushedTranscript {
+    std::string                   text;
+    std::string                   language;
+    float                         confidence;
+    std::vector<PushedWordTiming> word_timings;  // empty = unaligned
+};
+
 // 30 seconds of 16 kHz audio = 480 000 samples. Round up to 524 288
 // (2^19) for the power-of-two ring buffer requirement.
 constexpr size_t kRingBufferCapacitySamples = 524288;
@@ -105,6 +123,15 @@ public:
     /// Snapshot the pushed liveness result, or std::nullopt if none.
     std::optional<PushedLiveness> snapshot_liveness() const;
 
+    /// Parse and store a transcript JSON. Validates shape inline;
+    /// returns SENTLOG_ERR_INVALID_CONFIG on malformed JSON or
+    /// missing required fields. Must be called between startCapture
+    /// and evaluate.
+    sentlog_status_t push_transcript(const char* transcript_json);
+
+    /// Snapshot the pushed transcript, or std::nullopt if none.
+    std::optional<PushedTranscript> snapshot_transcript() const;
+
     /// Non-destructive copy of the audio ring buffer contents into
     /// `out`. Returns the number of samples written. Safe to call
     /// concurrently with push_audio.
@@ -162,6 +189,9 @@ private:
 
     mutable std::mutex liveness_mutex_;
     std::optional<PushedLiveness> pushed_liveness_;
+
+    mutable std::mutex transcript_mutex_;
+    std::optional<PushedTranscript> pushed_transcript_;
 
     /// Default: UNKNOWN. The platform binding pushes the real route
     /// at startCapture; integrators that never push see audio_source

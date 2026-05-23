@@ -34,6 +34,10 @@ sentlog_status_t State::start_capture() {
         std::lock_guard<std::mutex> lock(liveness_mutex_);
         pushed_liveness_.reset();
     }
+    {
+        std::lock_guard<std::mutex> lock(transcript_mutex_);
+        pushed_transcript_.reset();
+    }
     return SENTLOG_OK;
 }
 
@@ -58,12 +62,13 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
     }
 
     try {
-        const auto pushed_vad      = snapshot_vad_frames();
-        const auto pushed_liveness = snapshot_liveness();
-        const auto route           = audio_route();
+        const auto pushed_vad        = snapshot_vad_frames();
+        const auto pushed_liveness   = snapshot_liveness();
+        const auto pushed_transcript = snapshot_transcript();
+        const auto route             = audio_route();
         *result_json_out = Pipeline::run(config_, ring_,
                                          pushed_vad, pushed_liveness,
-                                         route);
+                                         pushed_transcript, route);
     } catch (...) {
         phase_.store(static_cast<int>(LifecyclePhase::Idle),
                      std::memory_order_release);
@@ -78,6 +83,10 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
     {
         std::lock_guard<std::mutex> lock(liveness_mutex_);
         pushed_liveness_.reset();
+    }
+    {
+        std::lock_guard<std::mutex> lock(transcript_mutex_);
+        pushed_transcript_.reset();
     }
     phase_.store(static_cast<int>(LifecyclePhase::Idle),
                  std::memory_order_release);
@@ -135,6 +144,61 @@ sentlog_status_t State::push_liveness_result(float score,
 std::optional<PushedLiveness> State::snapshot_liveness() const {
     std::lock_guard<std::mutex> lock(liveness_mutex_);
     return pushed_liveness_;
+}
+
+sentlog_status_t State::push_transcript(const char* transcript_json) {
+    if (phase() != LifecyclePhase::Capturing) {
+        return SENTLOG_ERR_INVALID_STATE;
+    }
+    if (transcript_json == nullptr) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
+
+    PushedTranscript parsed;
+    try {
+        const auto j = json::parse(transcript_json);
+        if (!j.is_object()) return SENTLOG_ERR_INVALID_CONFIG;
+
+        // text and language are required; an empty text is allowed
+        // (e.g. silence) but the keys must exist.
+        if (!j.contains("text")     || !j["text"].is_string())     return SENTLOG_ERR_INVALID_CONFIG;
+        if (!j.contains("language") || !j["language"].is_string()) return SENTLOG_ERR_INVALID_CONFIG;
+        if (!j.contains("confidence")) return SENTLOG_ERR_INVALID_CONFIG;
+
+        parsed.text     = j["text"].get<std::string>();
+        parsed.language = j["language"].get<std::string>();
+
+        float conf = j["confidence"].get<float>();
+        if (conf < 0.0f) conf = 0.0f;
+        if (conf > 1.0f) conf = 1.0f;
+        parsed.confidence = conf;
+
+        if (j.contains("word_timings") && j["word_timings"].is_array()) {
+            parsed.word_timings.reserve(j["word_timings"].size());
+            for (const auto& wt : j["word_timings"]) {
+                if (!wt.is_object()) return SENTLOG_ERR_INVALID_CONFIG;
+                if (!wt.contains("word")     || !wt["word"].is_string())  return SENTLOG_ERR_INVALID_CONFIG;
+                if (!wt.contains("start_ms") || !wt["start_ms"].is_number()) return SENTLOG_ERR_INVALID_CONFIG;
+                if (!wt.contains("end_ms")   || !wt["end_ms"].is_number())   return SENTLOG_ERR_INVALID_CONFIG;
+                parsed.word_timings.push_back(PushedWordTiming{
+                    wt["word"].get<std::string>(),
+                    wt["start_ms"].get<int32_t>(),
+                    wt["end_ms"].get<int32_t>(),
+                });
+            }
+        }
+    } catch (const json::exception&) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
+
+    std::lock_guard<std::mutex> lock(transcript_mutex_);
+    pushed_transcript_ = std::move(parsed);
+    return SENTLOG_OK;
+}
+
+std::optional<PushedTranscript> State::snapshot_transcript() const {
+    std::lock_guard<std::mutex> lock(transcript_mutex_);
+    return pushed_transcript_;
 }
 
 std::string State::permissions_json() const {

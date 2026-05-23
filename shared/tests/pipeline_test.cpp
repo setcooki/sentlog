@@ -452,6 +452,154 @@ TEST(PipelineTest, SnapshotAudioRespectsCallerCapacity) {
     sentlog_destroy(h);
 }
 
+// --- Pushed transcript (platform-side whisper.cpp, chunk 2a) ---
+
+TEST(PipelineTest, PushedTranscriptReplacesPlaceholder) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    const char* t = R"({
+        "text":       "hello world",
+        "language":   "en",
+        "confidence": 0.91,
+        "word_timings": [
+            {"word": "hello", "start_ms": 100, "end_ms": 450},
+            {"word": "world", "start_ms": 480, "end_ms": 820}
+        ]
+    })";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_EQ(j["transcript"]["text"],     "hello world");
+    EXPECT_EQ(j["transcript"]["language"], "en");
+    EXPECT_FLOAT_EQ(j["transcript"]["confidence"].get<float>(), 0.91f);
+    ASSERT_EQ(j["transcript"]["word_timings"].size(), 2u);
+    EXPECT_EQ(j["transcript"]["word_timings"][0]["word"],         "hello");
+    EXPECT_EQ(j["transcript"]["word_timings"][0]["start_ms"],     100);
+    EXPECT_EQ(j["transcript"]["word_timings"][1]["end_ms"],       820);
+    EXPECT_TRUE(j["transcript"]["target_match"].is_null())
+        << "target_match lands in chunk 2d, not 2a";
+    EXPECT_EQ(j["model_versions"]["asr"], "whisper-cpp-platform");
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, NoPushedTranscriptKeepsPlaceholderAndFlagsIt) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_EQ(j["transcript"]["text"],       "");
+    EXPECT_FALSE(j["transcript"].contains("word_timings"));
+    EXPECT_TRUE(j["transcript"]["target_match"].is_null());
+    EXPECT_EQ(j["model_versions"]["asr"], "placeholder-not-loaded");
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushedTranscriptWithoutWordTimingsIsAllowed) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    const char* t = R"({"text":"hi","language":"en","confidence":0.5})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_EQ(j["transcript"]["text"], "hi");
+    EXPECT_FALSE(j["transcript"].contains("word_timings"));
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushedTranscriptConfidenceClampedToValidRange) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    const char* t = R"({"text":"x","language":"en","confidence":2.5})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FLOAT_EQ(j["transcript"]["confidence"].get<float>(), 1.0f);
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushedTranscriptMalformedJsonRejected) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+
+    EXPECT_EQ(sentlog_push_transcript(h, "{not json"),
+              SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(sentlog_push_transcript(h, R"({"text":"x"})"),
+              SENTLOG_ERR_INVALID_CONFIG)   // missing required fields
+        << "missing language and confidence";
+    EXPECT_EQ(sentlog_push_transcript(h, nullptr),
+              SENTLOG_ERR_INVALID_CONFIG);
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushedTranscriptLastWriteWins) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    sentlog_push_transcript(h, R"({"text":"first","language":"en","confidence":0.1})");
+    sentlog_push_transcript(h, R"({"text":"second","language":"en","confidence":0.9})");
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_EQ(j["transcript"]["text"], "second");
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushTranscriptOutsideCaptureFailsLifecycle) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    EXPECT_EQ(sentlog_push_transcript(h, R"({"text":"x","language":"en","confidence":0.5})"),
+              SENTLOG_ERR_INVALID_STATE);
+    sentlog_destroy(h);
+}
+
 TEST(PipelineTest, NoRoutePushedDefaultsToZero) {
     sentlog_status_t s;
     auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);

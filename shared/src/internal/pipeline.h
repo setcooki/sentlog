@@ -36,10 +36,17 @@ public:
     /// AASIST-L inference). Otherwise the block carries a placeholder
     /// with `model_versions.liveness` reflecting that nothing real
     /// ran.
+    ///
+    /// If `pushed_transcript` is set, the pipeline emits the
+    /// transcript block populated from it (from platform-side
+    /// whisper.cpp). Otherwise the block is a placeholder with empty
+    /// text, language "und", and confidence 0.0. target_match is
+    /// always null at this chunk — direction scoring lands in 2d.
     static std::string run(const Config& config,
                            RingBuffer& ring,
                            const std::vector<PushedVadFrame>& pushed_vad,
                            const std::optional<PushedLiveness>& pushed_liveness,
+                           const std::optional<PushedTranscript>& pushed_transcript,
                            sentlog_audio_route_t audio_route);
 };
 

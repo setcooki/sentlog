@@ -122,6 +122,12 @@ sentlog_status_t sentlog_push_liveness_result(sentlog_handle_t* handle,
     return handle->state->push_liveness_result(score, replay_risk, synthetic_risk);
 }
 
+sentlog_status_t sentlog_push_transcript(sentlog_handle_t* handle,
+                                         const char* transcript_json) {
+    if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
+    return handle->state->push_transcript(transcript_json);
+}
+
 sentlog_status_t sentlog_set_audio_route(sentlog_handle_t* handle,
                                          sentlog_audio_route_t route) {
     if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;

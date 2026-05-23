@@ -118,6 +118,7 @@ std::string Pipeline::run(const Config& config,
                           RingBuffer& ring,
                           const std::vector<PushedVadFrame>& pushed_vad,
                           const std::optional<PushedLiveness>& pushed_liveness,
+                          const std::optional<PushedTranscript>& pushed_transcript,
                           sentlog_audio_route_t audio_route) {
     // 1. Drain audio.
     const std::vector<float> audio = drain_audio(ring);
@@ -147,13 +148,33 @@ std::string Pipeline::run(const Config& config,
         failure_reason = "TooNoisy";
     }
 
-    // 4. Transcript — placeholder until ASR (chunk 4+) lands. Empty
-    //    text, neutral confidence; word_timings omitted.
+    // 4. Transcript — pushed by platform-side whisper.cpp if present
+    //    (chunks 2b/2c); otherwise schema-correct placeholder so the
+    //    result shape stays stable. target_match stays null at this
+    //    chunk — direction scoring lands in 2d.
     {
         json t;
-        t["text"]       = "";
-        t["language"]   = config.language_hint;
-        t["confidence"] = 0.0f;
+        if (pushed_transcript.has_value()) {
+            t["text"]       = pushed_transcript->text;
+            t["language"]   = pushed_transcript->language;
+            t["confidence"] = pushed_transcript->confidence;
+            if (!pushed_transcript->word_timings.empty()) {
+                json wts = json::array();
+                for (const auto& w : pushed_transcript->word_timings) {
+                    json wt;
+                    wt["word"]     = w.word;
+                    wt["start_ms"] = w.start_ms;
+                    wt["end_ms"]   = w.end_ms;
+                    wts.push_back(wt);
+                }
+                t["word_timings"] = wts;
+            }
+        } else {
+            t["text"]       = "";
+            t["language"]   = config.language_hint;
+            t["confidence"] = 0.0f;
+        }
+        t["target_match"] = nullptr;
         result["transcript"] = t;
     }
 
@@ -221,7 +242,9 @@ std::string Pipeline::run(const Config& config,
         mv["liveness"] = pushed_liveness.has_value()
             ? "aasist-l-platform-onnx"
             : "placeholder-not-loaded";
-        mv["asr"]      = "0.0.0-phase1-not-loaded";
+        mv["asr"]      = pushed_transcript.has_value()
+            ? "whisper-cpp-platform"
+            : "placeholder-not-loaded";
         mv["prosody"]  = "0.0.0-phase1-not-loaded";
         mv["vad"]      = used_pushed_vad
             ? "silero-vad-v5-platform-onnx"

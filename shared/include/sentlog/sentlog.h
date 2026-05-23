@@ -199,6 +199,32 @@ sentlog_status_t sentlog_push_liveness_result(
     float replay_risk,
     float synthetic_risk);
 
+/* Push the transcript from platform-side ASR (whisper.cpp). At most
+ * one per evaluation; later pushes overwrite earlier ones. Must be
+ * called between startCapture and evaluate.
+ *
+ * transcript_json shape:
+ *   {
+ *     "text":        "...",            // required, may be empty
+ *     "language":    "en",             // ISO 639-1, required
+ *     "confidence":  0.0..1.0,         // required
+ *     "word_timings": [                // optional; omit when ASR
+ *       { "word": "hello",             // doesn't surface alignments
+ *         "start_ms": 100,
+ *         "end_ms":   450 },
+ *       ...
+ *     ]
+ *   }
+ *
+ * The pipeline does not compute target_match here — it derives that
+ * later from the pushed text and config.target_phrase. Pushing a
+ * target_match field is ignored.
+ *
+ * See ADR 0009. */
+sentlog_status_t sentlog_push_transcript(
+    sentlog_handle_t* handle,
+    const char* transcript_json);
+
 /* Audio input route the platform-side capture is using. The C++ core
  * cannot detect this itself — it only sees the float samples — so the
  * binding pushes the route via sentlog_set_audio_route. The pipeline
