@@ -20,7 +20,7 @@ architecture review enumerated in
 | Field | Value |
 |---|---|
 | Sentlog commit | _(filled at run time, e.g. `9775f10`)_ |
-| ONNX Runtime version | 1.17.1 |
+| ONNX Runtime version | 1.17.1 (Android) / 1.17.0 (iOS SwiftPM) |
 | AASIST-L source commit | _(filled at run time from `models/liveness/SOURCE.md`)_ |
 | Silero VAD tag | v5.1 |
 | Date | _(filled at run time)_ |

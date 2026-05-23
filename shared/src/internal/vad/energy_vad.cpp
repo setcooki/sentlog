@@ -124,10 +124,10 @@ public:
         }
         report.total_speech_samples = speech_samples;
         report.mean_speech_rms = speech_samples > 0
-            ? static_cast<float>(std::sqrt(speech_sumsq / speech_samples))
+            ? static_cast<float>(std::sqrt(speech_sumsq / static_cast<double>(speech_samples)))
             : 0.0f;
         report.mean_noise_rms = noise_samples > 0
-            ? static_cast<float>(std::sqrt(noise_sumsq / noise_samples))
+            ? static_cast<float>(std::sqrt(noise_sumsq / static_cast<double>(noise_samples)))
             : 0.0f;
         return report;
     }

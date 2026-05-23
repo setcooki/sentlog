@@ -20,12 +20,15 @@ let package = Package(
     dependencies: [
         .package(path: "../shared"),
         // ONNX Runtime — Silero VAD (this chunk) and AASIST-L liveness
-        // (subsequent chunk) inference. Pinned to match the Android
-        // onnxruntime-android version so both platforms run the same
-        // model in the same runtime (see ADR 0009).
+        // (subsequent chunk) inference. Pinned to the 1.17.x line so
+        // both platforms run the same model in the same runtime (see
+        // ADR 0009). The SwiftPM repo only publishes 1.17.0; Android
+        // is pinned to 1.17.1 on Maven (libs.versions.toml). Newer
+        // ORT SwiftPM releases require macOS 14, which would push our
+        // minimum past iOS 16's contemporary, so we hold at 1.17.x.
         .package(
             url: "https://github.com/microsoft/onnxruntime-swift-package-manager",
-            exact: "1.17.1"
+            exact: "1.17.0"
         ),
     ],
     targets: [
