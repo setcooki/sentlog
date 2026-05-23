@@ -111,14 +111,15 @@ The architecture diagram is in the [Whitepaper §5](./whitepaper.md#5-architectu
 ```kotlin
 // Kotlin
 object Sentlog {
-    fun init(config: SentlogConfig)
+    fun initialize(config: SentlogConfig, onTelemetry: ((TelemetryEvent) -> Unit)? = null)
+    fun destroy()
     fun startCapture()
     suspend fun evaluate(): SentlogResult
     fun cancel()
     fun getPermissions(): Permissions
     fun getCapabilities(): Capabilities
     suspend fun checkForUpdates(): UpdateResult
-    fun drainQueue(path: String, drain: (Envelope) -> Boolean): Int
+    fun drainQueue(path: String, drain: (String) -> Boolean): Int
     fun modelVersions(): ModelVersions
 }
 ```
@@ -126,7 +127,9 @@ object Sentlog {
 ```swift
 // Swift
 public enum Sentlog {
-    public static func initialize(config: SentlogConfig)
+    public static func initialize(config: SentlogConfig,
+                                  onTelemetry: ((TelemetryEvent) -> Void)?)
+    public static func destroy()
     public static func startCapture()
     public static func evaluate() async throws -> SentlogResult
     public static func cancel()
@@ -137,6 +140,10 @@ public enum Sentlog {
     public static func modelVersions() -> ModelVersions
 }
 ```
+
+`initialize` is idempotent: calling it again destroys the previous
+handle. `destroy` is exposed explicitly for graceful teardown and test
+isolation; called automatically by the next `initialize`.
 
 `getPermissions()` returns the current permission state without
 throwing. The SDK never requests permissions on the integrator's

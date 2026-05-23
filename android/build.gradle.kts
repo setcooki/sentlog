@@ -1,6 +1,8 @@
-// Phase 0 stub root build script. Real plugins (com.android.library,
-// org.jetbrains.kotlin.android, externalNativeBuild) wire up in Phase 1.
+// Root project build. Plugin versions are aliased so that the library
+// module pulls from a single source of truth.
 
 plugins {
-    // intentionally empty for Phase 0
+    alias(libs.plugins.android.library)             apply false
+    alias(libs.plugins.kotlin.android)              apply false
+    alias(libs.plugins.kotlin.serialization)        apply false
 }

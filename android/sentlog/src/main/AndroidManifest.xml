@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Library manifest. The SDK never requests permissions; the integrator
+  is responsible for the prompt UX. We declare RECORD_AUDIO so that
+  apps consuming the AAR get a clear merge-time signal that the
+  permission is required by the SDK, and we mark the microphone
+  feature as not required so the app can decide its own market
+  filtering.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
+</manifest>

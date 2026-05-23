@@ -62,6 +62,37 @@ jobs:
       - name: Build
         run: cmake --build shared/build
 
+  android-aar:
+    name: android (AAR + unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125 cmake;3.22.1"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.5"
+          cache-read-only: false
+
+      - name: Build AAR (debug)
+        working-directory: android
+        run: gradle :sentlog:assembleDebug --no-daemon
+
+      - name: Unit tests
+        working-directory: android
+        run: gradle :sentlog:testDebugUnitTest --no-daemon
+
   ios-spm:
     name: ios (Swift Package)
     runs-on: macos-14

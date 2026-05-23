@@ -38,7 +38,10 @@ build-shared:
 	@cmake --build shared/build
 
 build-android:
-	@echo "[build-android] Phase 0 stub — Gradle build wires up in Phase 1"
+	@cd android && gradle :sentlog:assembleDebug --no-daemon
+
+test-android:
+	@cd android && gradle :sentlog:testDebugUnitTest --no-daemon
 
 build-ios:
 	@echo "[build-ios] Phase 0 stub — XCFramework build wires up in Phase 1"
@@ -53,9 +56,6 @@ test: test-shared
 
 test-shared: build-shared
 	@cd shared/build && ctest --output-on-failure
-
-test-android:
-	@echo "[test-android] Phase 0 stub"
 
 test-ios:
 	@echo "[test-ios] Phase 0 stub"

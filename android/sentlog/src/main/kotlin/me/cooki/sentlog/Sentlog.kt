@@ -1,0 +1,242 @@
+package me.cooki.sentlog
+
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import me.cooki.sentlog.internal.AudioCapture
+import me.cooki.sentlog.internal.NativeBridge
+import me.cooki.sentlog.internal.ResultCallback
+import me.cooki.sentlog.internal.TelemetryCallback
+import me.cooki.sentlog.internal.UpdateCallback
+
+/**
+ * Sentlog public API. Singleton — one SDK instance per app session.
+ *
+ * Lifecycle:
+ * ```
+ * Sentlog.initialize(SentlogConfig(...))
+ * Sentlog.startCapture()
+ * // ...integrator captures user attention for 5-60 seconds...
+ * val result = Sentlog.evaluate()
+ * Sentlog.destroy()           // optional; initialize() also destroys
+ * ```
+ *
+ * Threading:
+ *  - [initialize] / [destroy] / [startCapture] / [cancel] /
+ *    [getPermissions] / [getCapabilities] / [modelVersions] are
+ *    synchronous and safe to call from any thread.
+ *  - [evaluate] and [checkForUpdates] are `suspend` and switch to
+ *    [Dispatchers.IO] internally.
+ *  - The SDK's own audio thread is internal — integrators never see
+ *    it.
+ *
+ * The SDK never requests permissions. If [PermissionState.Denied] is
+ * surfaced via [getPermissions], the integrator is responsible for
+ * requesting the relevant runtime permission before retrying.
+ */
+public object Sentlog {
+
+    private val json = Json {
+        ignoreUnknownKeys = true   // forward-compatible with new fields
+        encodeDefaults    = true   // config defaults visible to native
+        explicitNulls     = false
+    }
+
+    private var handle: Long = 0L
+    private var audio: AudioCapture? = null
+    private var userTelemetry: ((TelemetryEvent) -> Unit)? = null
+
+    /** SDK version string. */
+    public val version: String get() = NativeBridge.nativeVersion()
+
+    /**
+     * Initialise the SDK with [config]. If the SDK is already
+     * initialised, the existing handle is destroyed first.
+     *
+     * @throws IllegalArgumentException if the config fails validation
+     *         (the message names the offending field).
+     */
+    @Synchronized
+    public fun initialize(
+        config: SentlogConfig,
+        onTelemetry: ((TelemetryEvent) -> Unit)? = null,
+    ) {
+        if (handle != 0L) destroyLocked()
+
+        userTelemetry = onTelemetry
+        val telemetryAdapter = onTelemetry?.let {
+            object : TelemetryCallback() {
+                override fun onTelemetry(eventJson: String?) {
+                    if (eventJson == null) return
+                    try {
+                        val ev = json.decodeFromString(TelemetryEvent.serializer(), eventJson)
+                        it(ev)
+                    } catch (_: Exception) {
+                        // Unknown event type — forward-compatibility: ignore.
+                    }
+                }
+            }
+        }
+
+        val configJson = json.encodeToString(SentlogConfig.serializer(), config)
+        val status = IntArray(1)
+        val h = NativeBridge.nativeCreate(configJson, telemetryAdapter, status)
+        if (h == 0L) {
+            throw IllegalArgumentException(
+                "SentlogConfig failed validation (status=${status[0]})"
+            )
+        }
+        handle = h
+    }
+
+    /**
+     * Start audio capture. Throws [IllegalStateException] if the SDK
+     * has not been initialised. Throws [SecurityException] if the
+     * RECORD_AUDIO permission has not been granted.
+     */
+    @Synchronized
+    public fun startCapture() {
+        val h = requireHandle()
+        val s = NativeBridge.nativeStartCapture(h)
+        when (s) {
+            NativeBridge.STATUS_OK -> {}
+            NativeBridge.STATUS_ERR_INVALID_STATE ->
+                throw IllegalStateException("startCapture called while not idle")
+            else ->
+                throw IllegalStateException("startCapture failed (status=$s)")
+        }
+        audio = AudioCapture { samples, n ->
+            NativeBridge.nativePushAudioFrame(h, samples, n)
+        }.also { it.start() }
+    }
+
+    /**
+     * Stop capture and run the evaluation pipeline. Returns when the
+     * pipeline completes.
+     */
+    public suspend fun evaluate(): SentlogResult = withContext(Dispatchers.IO) {
+        val h = requireHandle()
+        audio?.stop()
+        audio = null
+
+        val deferred = CompletableDeferred<SentlogResult>()
+        val cb = object : ResultCallback() {
+            override fun onResult(status: Int, resultJson: String?) {
+                if (status != NativeBridge.STATUS_OK || resultJson == null) {
+                    deferred.completeExceptionally(
+                        IllegalStateException("evaluate failed (status=$status)")
+                    )
+                    return
+                }
+                try {
+                    deferred.complete(
+                        json.decodeFromString(SentlogResult.serializer(), resultJson)
+                    )
+                } catch (e: Exception) {
+                    deferred.completeExceptionally(e)
+                }
+            }
+        }
+        val initialStatus = NativeBridge.nativeEvaluate(h, cb)
+        if (initialStatus != NativeBridge.STATUS_OK) {
+            throw IllegalStateException("evaluate kickoff failed (status=$initialStatus)")
+        }
+        deferred.await()
+    }
+
+    /** Cancel any in-progress capture or evaluation. Safe to call any time. */
+    @Synchronized
+    public fun cancel() {
+        if (handle == 0L) return
+        audio?.stop()
+        audio = null
+        NativeBridge.nativeCancel(handle)
+    }
+
+    /** Current permission state; never throws. */
+    public fun getPermissions(): Permissions {
+        val h = requireHandle()
+        val js = NativeBridge.nativeGetPermissions(h)
+            ?: error("nativeGetPermissions returned null")
+        return json.decodeFromString(Permissions.serializer(), js)
+    }
+
+    /** Current capability detection; never throws. */
+    public fun getCapabilities(): Capabilities {
+        val h = requireHandle()
+        val js = NativeBridge.nativeGetCapabilities(h)
+            ?: error("nativeGetCapabilities returned null")
+        return json.decodeFromString(Capabilities.serializer(), js)
+    }
+
+    /** Versions of loaded models. */
+    public fun modelVersions(): ModelVersions {
+        val h = requireHandle()
+        val js = NativeBridge.nativeModelVersions(h)
+            ?: error("nativeModelVersions returned null")
+        return json.decodeFromString(ModelVersions.serializer(), js)
+    }
+
+    /** Check for an OTA model update. Integrator-triggered; never autonomous. */
+    public suspend fun checkForUpdates(): UpdateResult = withContext(Dispatchers.IO) {
+        val h = requireHandle()
+        val deferred = CompletableDeferred<UpdateResult>()
+        val cb = object : UpdateCallback() {
+            override fun onUpdate(status: Int, updateJson: String?) {
+                if (status != NativeBridge.STATUS_OK || updateJson == null) {
+                    deferred.completeExceptionally(
+                        IllegalStateException("checkForUpdates failed (status=$status)")
+                    )
+                    return
+                }
+                try {
+                    deferred.complete(
+                        json.decodeFromString(UpdateResult.serializer(), updateJson)
+                    )
+                } catch (e: Exception) {
+                    deferred.completeExceptionally(e)
+                }
+            }
+        }
+        val initialStatus = NativeBridge.nativeCheckForUpdates(h, cb)
+        if (initialStatus != NativeBridge.STATUS_OK) {
+            throw IllegalStateException("checkForUpdates kickoff failed (status=$initialStatus)")
+        }
+        deferred.await()
+    }
+
+    /**
+     * Drain a local-queue forwarder file. Phase 4 implementation;
+     * Phase 2a returns 0 unconditionally.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    public fun drainQueue(path: String, drain: (String) -> Boolean): Int = 0
+
+    /**
+     * Release all SDK resources. Safe to call multiple times. After
+     * destroy, the SDK must be re-initialised before further use.
+     */
+    @Synchronized
+    public fun destroy() {
+        destroyLocked()
+    }
+
+    // --- internal helpers ---
+
+    private fun destroyLocked() {
+        audio?.stop()
+        audio = null
+        if (handle != 0L) {
+            NativeBridge.nativeDestroy(handle)
+            handle = 0L
+        }
+        userTelemetry = null
+    }
+
+    private fun requireHandle(): Long {
+        val h = handle
+        check(h != 0L) { "Sentlog is not initialised — call Sentlog.initialize(...) first" }
+        return h
+    }
+}
