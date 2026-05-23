@@ -25,3 +25,4 @@ Subsequent batches land as new decisions are made.
 | [0006](0006-evidence-not-verdicts.md) | The SDK output is evidence, not verdicts | 1.22 |
 | [0007](0007-vc20-envelope-format.md) | W3C Verifiable Credentials 2.0 envelope format | 1.25 |
 | [0008](0008-rn-capacitor-bridges-in-v1.md) | React Native and Capacitor JS bridges in v1.0 | 1.16 |
+| [0009](0009-platform-side-ml-inference.md) | Platform-side ML inference; C++ orchestrates | (revises 1.1) |

@@ -26,6 +26,10 @@ sentlog_status_t State::start_capture() {
         return SENTLOG_ERR_INVALID_STATE;
     }
     ring_.reset();
+    {
+        std::lock_guard<std::mutex> lock(vad_mutex_);
+        pushed_vad_frames_.clear();
+    }
     return SENTLOG_OK;
 }
 
@@ -50,7 +54,8 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
     }
 
     try {
-        *result_json_out = Pipeline::run(config_, ring_);
+        const auto pushed = snapshot_vad_frames();
+        *result_json_out = Pipeline::run(config_, ring_, pushed);
     } catch (...) {
         phase_.store(static_cast<int>(LifecyclePhase::Idle),
                      std::memory_order_release);
@@ -58,6 +63,10 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
     }
 
     ring_.reset();
+    {
+        std::lock_guard<std::mutex> lock(vad_mutex_);
+        pushed_vad_frames_.clear();
+    }
     phase_.store(static_cast<int>(LifecyclePhase::Idle),
                  std::memory_order_release);
     return SENTLOG_OK;
@@ -73,6 +82,24 @@ sentlog_status_t State::push_audio(const float* samples, size_t num_samples) {
     }
     ring_.write(samples, num_samples);
     return SENTLOG_OK;
+}
+
+sentlog_status_t State::push_vad_frame(size_t start_sample,
+                                       size_t num_samples,
+                                       float  probability) {
+    if (phase() != LifecyclePhase::Capturing) {
+        return SENTLOG_ERR_INVALID_STATE;
+    }
+    if (probability < 0.0f) probability = 0.0f;
+    if (probability > 1.0f) probability = 1.0f;
+    std::lock_guard<std::mutex> lock(vad_mutex_);
+    pushed_vad_frames_.push_back({start_sample, num_samples, probability});
+    return SENTLOG_OK;
+}
+
+std::vector<PushedVadFrame> State::snapshot_vad_frames() const {
+    std::lock_guard<std::mutex> lock(vad_mutex_);
+    return pushed_vad_frames_;
 }
 
 std::string State::permissions_json() const {

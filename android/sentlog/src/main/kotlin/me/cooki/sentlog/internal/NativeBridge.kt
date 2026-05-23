@@ -42,6 +42,7 @@ internal object NativeBridge {
     @JvmStatic external fun nativeDestroy(handle: Long)
     @JvmStatic external fun nativeStartCapture(handle: Long): Int
     @JvmStatic external fun nativePushAudioFrame(handle: Long, samples: FloatArray, numSamples: Int): Int
+    @JvmStatic external fun nativePushVadFrame(handle: Long, startSample: Long, numSamples: Int, probability: Float): Int
     @JvmStatic external fun nativeEvaluate(handle: Long, resultCb: ResultCallback): Int
     @JvmStatic external fun nativeCancel(handle: Long)
     @JvmStatic external fun nativeGetPermissions(handle: Long): String?

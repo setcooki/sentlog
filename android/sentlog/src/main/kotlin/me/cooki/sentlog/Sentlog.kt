@@ -1,5 +1,6 @@
 package me.cooki.sentlog
 
+import android.content.Context
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -7,6 +8,7 @@ import kotlinx.serialization.json.Json
 import me.cooki.sentlog.internal.AudioCapture
 import me.cooki.sentlog.internal.NativeBridge
 import me.cooki.sentlog.internal.ResultCallback
+import me.cooki.sentlog.internal.SileroVadStream
 import me.cooki.sentlog.internal.TelemetryCallback
 import me.cooki.sentlog.internal.UpdateCallback
 
@@ -45,6 +47,8 @@ public object Sentlog {
 
     private var handle: Long = 0L
     private var audio: AudioCapture? = null
+    private var vadStream: SileroVadStream? = null
+    private var sileroModelBytes: ByteArray? = null
     private var userTelemetry: ((TelemetryEvent) -> Unit)? = null
 
     /** SDK version string. */
@@ -54,17 +58,35 @@ public object Sentlog {
      * Initialise the SDK with [config]. If the SDK is already
      * initialised, the existing handle is destroyed first.
      *
+     * Pass [context] to load bundled ML models (Silero VAD, AASIST-L
+     * in a follow-up chunk) from the AAR's assets directory. If
+     * [context] is null, the SDK falls back to its built-in
+     * energy-based VAD — useful for tests that don't have an Android
+     * Context.
+     *
      * @throws IllegalArgumentException if the config fails validation
      *         (the message names the offending field).
      */
     @Synchronized
     public fun initialize(
         config: SentlogConfig,
+        context: Context? = null,
         onTelemetry: ((TelemetryEvent) -> Unit)? = null,
     ) {
         if (handle != 0L) destroyLocked()
 
         userTelemetry = onTelemetry
+
+        // Load the Silero VAD ONNX model bytes once and cache them.
+        // The OrtSession is created later, per startCapture, so it can
+        // be properly disposed at cancel/destroy.
+        if (context != null && sileroModelBytes == null) {
+            sileroModelBytes = try {
+                context.assets.open(SILERO_MODEL_ASSET).use { it.readBytes() }
+            } catch (_: Throwable) {
+                null  // model missing → fall back to energy VAD
+            }
+        }
         val telemetryAdapter = onTelemetry?.let {
             object : TelemetryCallback() {
                 override fun onTelemetry(eventJson: String?) {
@@ -106,9 +128,29 @@ public object Sentlog {
             else ->
                 throw IllegalStateException("startCapture failed (status=$s)")
         }
-        audio = AudioCapture { samples, n ->
-            NativeBridge.nativePushAudioFrame(h, samples, n)
-        }.also { it.start() }
+
+        // If we have the Silero model loaded, spin up an inference
+        // session for this capture. ORT sessions are per-capture so
+        // we can dispose cleanly at cancel/destroy.
+        val silero = sileroModelBytes?.let { bytes ->
+            try {
+                SileroVadStream(bytes).also { vadStream = it }
+            } catch (_: Throwable) {
+                null  // ORT init failed → fall back to energy VAD
+            }
+        }
+
+        audio = AudioCapture(
+            pushFrame = { samples, n ->
+                NativeBridge.nativePushAudioFrame(h, samples, n)
+            },
+            vad = silero,
+            pushVad = silero?.let {
+                { startSample, numSamples, prob ->
+                    NativeBridge.nativePushVadFrame(h, startSample, numSamples, prob)
+                }
+            },
+        ).also { it.start() }
     }
 
     /**
@@ -119,6 +161,8 @@ public object Sentlog {
         val h = requireHandle()
         audio?.stop()
         audio = null
+        vadStream?.close()
+        vadStream = null
 
         val deferred = CompletableDeferred<SentlogResult>()
         val cb = object : ResultCallback() {
@@ -151,6 +195,8 @@ public object Sentlog {
         if (handle == 0L) return
         audio?.stop()
         audio = null
+        vadStream?.close()
+        vadStream = null
         NativeBridge.nativeCancel(handle)
     }
 
@@ -227,6 +273,8 @@ public object Sentlog {
     private fun destroyLocked() {
         audio?.stop()
         audio = null
+        vadStream?.close()
+        vadStream = null
         if (handle != 0L) {
             NativeBridge.nativeDestroy(handle)
             handle = 0L
@@ -239,4 +287,7 @@ public object Sentlog {
         check(h != 0L) { "Sentlog is not initialised — call Sentlog.initialize(...) first" }
         return h
     }
+
+    /** Asset name of the bundled Silero VAD ONNX model. */
+    private const val SILERO_MODEL_ASSET: String = "silero_vad.onnx"
 }

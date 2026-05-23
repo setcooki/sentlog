@@ -12,8 +12,10 @@
 #define SENTLOG_INTERNAL_PIPELINE_H
 
 #include <string>
+#include <vector>
 
 #include "internal/config.h"
+#include "internal/state.h"
 
 namespace sentlog::internal {
 
@@ -23,7 +25,14 @@ class Pipeline {
 public:
     /// Run the pipeline. Returns a JSON-encoded SentlogResult ready
     /// for delivery to the integrator's callback.
-    static std::string run(const Config& config, RingBuffer& ring);
+    ///
+    /// If `pushed_vad` is non-empty, the pipeline uses those
+    /// probabilities (from platform-side ONNX inference, e.g. Silero)
+    /// instead of the built-in energy VAD. The model_versions field in
+    /// the result reflects which path was used.
+    static std::string run(const Config& config,
+                           RingBuffer& ring,
+                           const std::vector<PushedVadFrame>& pushed_vad);
 };
 
 }  // namespace sentlog::internal

@@ -105,6 +105,15 @@ sentlog_status_t sentlog_push_audio_frame(sentlog_handle_t* handle,
     return handle->state->push_audio(samples, num_samples);
 }
 
+sentlog_status_t sentlog_push_vad_frame(sentlog_handle_t* handle,
+                                        size_t start_sample,
+                                        size_t num_samples,
+                                        float  probability) {
+    if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
+    if (num_samples == 0)  return SENTLOG_OK;
+    return handle->state->push_vad_frame(start_sample, num_samples, probability);
+}
+
 sentlog_status_t sentlog_evaluate(sentlog_handle_t* handle,
                                   sentlog_result_cb_t cb,
                                   void* userdata) {

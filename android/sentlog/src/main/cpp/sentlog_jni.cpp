@@ -220,6 +220,19 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeStartCapture(
 }
 
 JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativePushVadFrame(
+    JNIEnv* /*env*/, jclass /*clazz*/, jlong handle,
+    jlong start_sample, jint num_samples, jfloat probability) {
+
+    if (num_samples <= 0) return SENTLOG_OK;
+    return static_cast<jint>(sentlog_push_vad_frame(
+        native_from_jlong(handle),
+        static_cast<size_t>(start_sample),
+        static_cast<size_t>(num_samples),
+        static_cast<float>(probability)));
+}
+
+JNIEXPORT jint JNICALL
 Java_me_cooki_sentlog_internal_NativeBridge_nativePushAudioFrame(
     JNIEnv* env, jclass /*clazz*/, jlong handle,
     jfloatArray samples, jint num_samples) {

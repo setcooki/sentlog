@@ -52,12 +52,21 @@ keep AI-coded FFI tractable.
 
 **Enabled:**
 
-- Score parity is automatic: every platform invokes literally the same
-  object code through the same C entry points.
-- whisper.cpp, ggml, openSMILE, and AASIST-L (all C/C++) integrate
-  without language hops.
+- Score parity is automatic for everything that runs in the C++ core
+  (state, scoring, fingerprint, envelope assembly): every platform
+  invokes literally the same object code through the same C entry
+  points.
+- whisper.cpp, ggml, openSMILE (all C/C++) integrate without language
+  hops.
 - The same C++ core compiles to WebAssembly for a future
   `@sentlog/web` (Phase 9).
+
+**Revised by ADR 0009:** ONNX-Runtime-based ML inference (Silero VAD,
+AASIST-L, prosody probe) lives in the platform bindings, not the C++
+shared core. Score parity is preserved by both platforms running the
+same ONNX model in the same pinned ORT version; the data pump itself
+is bit-identical modulo well-understood floating-point determinism.
+See [ADR 0009](0009-platform-side-ml-inference.md) for the rationale.
 
 **Constrained:**
 

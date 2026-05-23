@@ -159,6 +159,28 @@ sentlog_status_t sentlog_push_audio_frame(
     const float* samples,
     size_t num_samples);
 
+/* Push a VAD speech-probability for a single frame, computed by the
+ * platform binding's ONNX Runtime inference (Silero VAD). The
+ * pipeline uses pushed probabilities when present; absent any pushes,
+ * it falls back to the C++ core's built-in energy VAD.
+ *
+ * See ADR 0009 for the platform-side-inference architecture.
+ *
+ *   start_sample  First audio sample this probability covers (matches
+ *                 the audio pushed via sentlog_push_audio_frame).
+ *   num_samples   Number of audio samples this probability covers
+ *                 (e.g. 480 for a 30 ms Silero frame at 16 kHz).
+ *   probability   Speech probability in [0.0, 1.0].
+ *
+ * Real-time-safe: never allocates, never blocks. Safe to call from
+ * the binding's inference thread while sentlog_push_audio_frame is
+ * also being called from the audio thread. */
+sentlog_status_t sentlog_push_vad_frame(
+    sentlog_handle_t* handle,
+    size_t start_sample,
+    size_t num_samples,
+    float probability);
+
 /* Stop capture and run evaluation. Result arrives via cb on the I/O thread. */
 sentlog_status_t sentlog_evaluate(
     sentlog_handle_t* handle,

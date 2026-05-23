@@ -9,21 +9,45 @@ import android.os.Process
  * Real-time audio capture on a dedicated thread. Captures
  * 16 kHz mono PCM_FLOAT and pushes each frame to [pushFrame].
  *
+ * If [vad] is non-null, captured audio is also fed into a Silero VAD
+ * chunker; full Silero chunks (512 samples) trigger inference and the
+ * resulting speech probability is pushed via [pushVad]. Silero
+ * inference runs inline on this thread — measured at ~1 ms per chunk
+ * on mid-range Android hardware (validated in the Phase 1g benchmark
+ * gate). If inference time becomes a problem, move it to a worker
+ * thread via an SPSC queue.
+ *
  * Owned by [me.cooki.sentlog.Sentlog]; not part of the public API.
  *
  * Threading: [start] spawns a background thread, [stop] joins it.
- * [pushFrame] is invoked from the background thread.
+ * [pushFrame] and [pushVad] are invoked from the background thread.
  */
 internal class AudioCapture(
     private val pushFrame: (FloatArray, Int) -> Int,
+    private val vad: SileroVadStream? = null,
+    private val pushVad: ((startSample: Long, numSamples: Int, probability: Float) -> Int)? = null,
 ) {
 
     @Volatile private var running: Boolean = false
     private var thread: Thread? = null
     private var record: AudioRecord? = null
+    private val vadChunker: SileroVadStream.Chunker? = vad?.let { v ->
+        SileroVadStream.Chunker { startSample, chunk ->
+            val prob = try {
+                v.infer(chunk)
+            } catch (t: Throwable) {
+                // Silero failure on a single chunk shouldn't take down
+                // capture. Fall back to energy VAD by not pushing.
+                return@Chunker
+            }
+            pushVad?.invoke(startSample, chunk.size, prob)
+        }
+    }
 
     fun start() {
         if (running) return
+        vadChunker?.reset()
+        vad?.reset()
 
         val minBuf = AudioRecord.getMinBufferSize(
             SAMPLE_RATE_HZ,
@@ -97,6 +121,10 @@ internal class AudioCapture(
                 break
             }
             pushFrame(buf, n)
+            // VAD path runs inline; failures inside the chunker callback
+            // are caught and swallowed there (energy VAD still runs in
+            // the C++ pipeline as a fallback).
+            vadChunker?.feed(buf, n)
         }
     }
 

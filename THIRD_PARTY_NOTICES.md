@@ -80,6 +80,48 @@ notice constitutes that attribution.
 
 ---
 
+## Silero VAD ONNX model (bundled)
+
+The Sentlog Android AAR bundles the Silero VAD v5.1 ONNX model
+at `android/sentlog/src/main/assets/silero_vad.onnx` (~2.3 MB).
+
+- **Source:** [`snakers4/silero-vad`](https://github.com/snakers4/silero-vad),
+  file `src/silero_vad/data/silero_vad.onnx` at tag `v5.1`.
+- **Paper / model card:** Silero Team — *Silero VAD: pre-trained
+  enterprise-grade voice activity detector*. See the upstream repo
+  README for benchmark details.
+- **Pinned tag:** v5.1.
+- **Licence:** MIT.
+
+```
+MIT License
+
+Copyright (c) 2024-present Silero Team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+The iOS SwiftPM package bundles the same model file when Silero is
+wired up in a follow-up chunk.
+
+---
+
 ## Other upstream dependencies
 
 The following open-source projects are used at build or runtime by
@@ -97,6 +139,7 @@ required by the respective licence; this file carries attribution.
 | Apple Vision framework | Face landmark detection (iOS, affect mode) | Apple system framework |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON parsing and serialisation in the C++ core | MIT |
 | [GoogleTest](https://github.com/google/googletest) | Test framework (build-time only; not in shipping artefacts) | BSD-3-Clause |
+| [ONNX Runtime Mobile](https://github.com/microsoft/onnxruntime) | On-device ONNX inference (Silero VAD; AASIST-L in a follow-up chunk) | MIT |
 
 When the SDK build system integrates each of these in the phases
 that own them, the bundled binaries carry the respective licence

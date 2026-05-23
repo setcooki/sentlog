@@ -19,12 +19,21 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "internal/config.h"
 #include "internal/ring_buffer.h"
 #include "sentlog/sentlog.h"
 
 namespace sentlog::internal {
+
+/// One frame of VAD output pushed by the platform-side ONNX
+/// inference (Silero). Stored in order of arrival.
+struct PushedVadFrame {
+    size_t start_sample;
+    size_t num_samples;
+    float  probability;
+};
 
 // 30 seconds of 16 kHz audio = 480 000 samples. Round up to 524 288
 // (2^19) for the power-of-two ring buffer requirement.
@@ -65,6 +74,16 @@ public:
 
     sentlog_status_t push_audio(const float* samples, size_t num_samples);
 
+    /// Push one VAD probability frame from platform-side ONNX
+    /// inference (Silero VAD). Safe in parallel with push_audio.
+    sentlog_status_t push_vad_frame(size_t start_sample,
+                                    size_t num_samples,
+                                    float  probability);
+
+    /// Snapshot the pushed VAD frames for pipeline consumption.
+    /// Safe to call from the evaluation thread.
+    std::vector<PushedVadFrame> snapshot_vad_frames() const;
+
     // --- Read-only state queries (any thread) ---
 
     LifecyclePhase phase() const noexcept {
@@ -97,6 +116,9 @@ private:
     std::atomic<int> phase_{static_cast<int>(LifecyclePhase::Idle)};
 
     RingBuffer ring_{kRingBufferCapacitySamples};
+
+    mutable std::mutex vad_mutex_;
+    std::vector<PushedVadFrame> pushed_vad_frames_;
 
     mutable std::mutex telemetry_mutex_;
 };

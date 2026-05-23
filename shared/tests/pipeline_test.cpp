@@ -176,3 +176,88 @@ TEST(PipelineTest, EvaluateAfterCancelFailsLifecycle) {
 
     sentlog_destroy(h);
 }
+
+// --- Pushed VAD path (platform-side ONNX inference, per ADR 0009) ---
+
+TEST(PipelineTest, PushedVadFramesAreUsedWhenPresent) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    // Push audio AND push speech probabilities for the speech region.
+    // 16000 samples = 1 s; we push 32 chunks of 512 samples (one
+    // second of audio classified entirely as speech by "platform"
+    // inference).
+    auto audio = make_speech_2s();
+    ASSERT_EQ(sentlog_push_audio_frame(h, audio.data(), audio.size()),
+              SENTLOG_OK);
+    for (size_t start = 0; start + 512 <= audio.size(); start += 512) {
+        ASSERT_EQ(sentlog_push_vad_frame(h, start, 512, 0.95f), SENTLOG_OK);
+    }
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    ASSERT_EQ(cap.status, SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    // model_versions.vad reflects which path ran.
+    EXPECT_EQ(j["model_versions"]["vad"], "silero-vad-v5-platform-onnx");
+    EXPECT_FALSE(j["diagnostics"].contains("failure_reason"));
+    EXPECT_GT(j["diagnostics"]["snr_db"].get<float>(), 0.0f);
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, NoPushedVadFallsBackToEnergyVad) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    // Deliberately no sentlog_push_vad_frame calls.
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_EQ(j["model_versions"]["vad"], "energy-vad-baseline");
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushedVadAllSilentFlagsNoSpeech) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();  // loud audio
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    // Push probabilities all below threshold — Silero says "no speech"
+    // even though the audio is loud. The pipeline trusts the pushed
+    // result over its own energy estimate (ADR 0009).
+    for (size_t start = 0; start + 512 <= audio.size(); start += 512) {
+        ASSERT_EQ(sentlog_push_vad_frame(h, start, 512, 0.10f), SENTLOG_OK);
+    }
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_EQ(j["diagnostics"]["failure_reason"], "NoSpeechDetected");
+    EXPECT_EQ(j["model_versions"]["vad"], "silero-vad-v5-platform-onnx");
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushVadOutsideCaptureFailsLifecycle) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    EXPECT_EQ(sentlog_push_vad_frame(h, 0, 512, 0.5f),
+              SENTLOG_ERR_INVALID_STATE);
+
+    sentlog_destroy(h);
+}

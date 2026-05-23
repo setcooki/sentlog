@@ -46,7 +46,10 @@ Sub-chunked for shippable increments:
   `SentlogResult` with placeholder ML scores. **Silero ONNX upgrade
   deferred — shares the ORT integration with chunk 1e (AASIST-L).**
 - **1e**: ONNX Runtime integration — Silero VAD swap-in, AASIST-L
-  liveness, model-file distribution per platform.
+  liveness, model-file distribution per platform. Split into
+  **1e1** (architecture ADR 0009: platform-side inference, C++
+  receives pushed results; Android Silero wired in) and **1e2+**
+  (iOS Silero, AASIST-L on both platforms).
 - **1f**: Audio input route detection wired through the C ABI.
 - **1g**: **Benchmark gate (§2) executed.** Recorded in
   `docs/benchmarks/wk2.md`.

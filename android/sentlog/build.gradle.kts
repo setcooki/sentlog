@@ -96,6 +96,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    // ONNX Runtime Mobile — runs Silero VAD and (Phase 1e2) AASIST-L
+    // on-device. Ships its own JNI .so per ABI; the prebuilt AAR
+    // covers arm64-v8a + x86_64 (matches our abiFilters above).
+    implementation(libs.onnxruntime.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
