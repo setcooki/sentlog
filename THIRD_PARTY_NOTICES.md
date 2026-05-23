@@ -59,6 +59,28 @@ only the architecture (`models/AASIST.py`) and the weight blob
 
 ---
 
+## AASIST-L liveness model (bundled when conversion has run)
+
+When the conversion in `tools/aasist-conversion/` has been run, the
+SDK bundles the converted `aasist_l.onnx` (~340 KB) derived from the
+upstream MIT-licensed `AASIST-L.pth` weights.
+
+- **Source:** [`clovaai/aasist`](https://github.com/clovaai/aasist),
+  file `models/weights/AASIST-L.pth` and `models/AASIST.py`.
+- **Pinned commit:** see `AASIST_COMMIT` in
+  [`tools/aasist-conversion/convert-aasist-l.py`](tools/aasist-conversion/convert-aasist-l.py).
+- **Conversion:** PyTorch → ONNX (opset 17) via the upstream
+  architecture definition; smoke-tested with ORT.
+- **Licence:** MIT (NAVER Corp; see
+  [ADR 0004](docs/adr/0004-aasist-l-liveness-from-week-2.md) for the
+  whole-repo licence assessment).
+
+Same MIT notice as the Silero VAD entry above; see
+[`models/liveness/SOURCE.md`](models/liveness/SOURCE.md) for the full
+provenance of the converted artefact.
+
+---
+
 ## ASVspoof 2019 LA — Training data
 
 The AASIST-L weights bundled above were trained on the ASVspoof 2019

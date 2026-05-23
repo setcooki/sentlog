@@ -1,0 +1,8 @@
+# AASIST-L → ONNX conversion deps.
+# Pinned to versions known to work with the clovaai/aasist commit
+# referenced in convert-aasist-l.py.
+
+torch==2.2.2          # AASIST upstream requires torch; pinned for repeatability
+numpy==1.26.4          # transitive of torch; pinned to suppress NumPy 2 ABI warnings
+onnx==1.16.0           # needed for torch.onnx.export
+onnxruntime==1.17.1    # smoke-test the exported model (matches SDK runtime version)

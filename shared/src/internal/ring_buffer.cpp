@@ -66,6 +66,23 @@ size_t RingBuffer::read(float* out, size_t num_samples) noexcept {
     return to_read;
 }
 
+size_t RingBuffer::peek(float* out, size_t num_samples) const noexcept {
+    if (out == nullptr || num_samples == 0) {
+        return 0;
+    }
+
+    const size_t r = read_index_.load(std::memory_order_acquire);
+    const size_t w = write_index_.load(std::memory_order_acquire);
+    const size_t avail = w - r;
+    const size_t to_read = std::min(num_samples, avail);
+
+    for (size_t i = 0; i < to_read; ++i) {
+        out[i] = buffer_[(r + i) & mask_];
+    }
+    // Intentionally do NOT advance read_index_ — that's the point.
+    return to_read;
+}
+
 size_t RingBuffer::available() const noexcept {
     const size_t w = write_index_.load(std::memory_order_acquire);
     const size_t r = read_index_.load(std::memory_order_acquire);

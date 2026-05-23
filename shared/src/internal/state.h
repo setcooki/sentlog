@@ -105,6 +105,13 @@ public:
     /// Snapshot the pushed liveness result, or std::nullopt if none.
     std::optional<PushedLiveness> snapshot_liveness() const;
 
+    /// Non-destructive copy of the audio ring buffer contents into
+    /// `out`. Returns the number of samples written. Safe to call
+    /// concurrently with push_audio.
+    size_t snapshot_audio(float* out, size_t capacity) const noexcept {
+        return ring_.peek(out, capacity);
+    }
+
     /// Record the current audio input route. Pushed by the platform
     /// binding at startCapture and on route changes. Safe to call any
     /// time after construction.

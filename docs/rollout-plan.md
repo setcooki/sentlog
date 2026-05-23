@@ -52,11 +52,14 @@ Sub-chunked for shippable increments:
   - **1e2**: iOS Silero wired in.
   - **1e3a**: liveness push C ABI + pipeline integration (`sentlog_push_liveness_result`,
     pipeline uses pushed liveness when present, otherwise placeholder).
-  - **1e3b**: AASIST-L `.pth` → `.onnx` conversion via
-    `tools/convert-aasist-l.py`; bundle the ONNX in both platforms;
-    write `AasistLivenessRunner` on each platform; wire into
-    `Sentlog.evaluate()` (need audio snapshot since AASIST-L is
-    utterance-level not streaming — see open question below).
+  - **1e3b**: AASIST-L architecture + conversion script (architecture
+    + Python conversion script + Kotlin/Swift `AasistLivenessRunner`
+    classes + `sentlog_snapshot_audio` C ABI + wiring through both
+    `Sentlog.evaluate()` flows). The platform runners gracefully no-op
+    when the bundled `.onnx` is missing, so the build doesn't depend
+    on the model file being present. Final piece: someone runs
+    `tools/aasist-conversion/convert-aasist-l.py` to generate
+    `aasist_l.onnx` and commit it.
 - **1f**: Audio input route detection wired through the C ABI.
 - **1g**: **Benchmark gate (§2) executed.** Recorded in
   `docs/benchmarks/wk2.md`.

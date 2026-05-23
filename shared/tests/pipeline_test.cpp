@@ -402,6 +402,56 @@ TEST(PipelineTest, AudioSourceFromLoopbackIsZero) {
     EXPECT_FLOAT_EQ(j["presence"]["audio_source"].get<float>(), 0.0f);
 }
 
+TEST(PipelineTest, SnapshotAudioReturnsCapturedSamplesWithoutDraining) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    // Snapshot doesn't consume — call it twice.
+    std::vector<float> snap1(audio.size(), 0.0f);
+    std::vector<float> snap2(audio.size(), 0.0f);
+    size_t n1 = 0, n2 = 0;
+    ASSERT_EQ(sentlog_snapshot_audio(h, snap1.data(), snap1.size(), &n1),
+              SENTLOG_OK);
+    ASSERT_EQ(sentlog_snapshot_audio(h, snap2.data(), snap2.size(), &n2),
+              SENTLOG_OK);
+    EXPECT_EQ(n1, audio.size());
+    EXPECT_EQ(n2, audio.size());
+    EXPECT_EQ(snap1[0], audio[0]);
+    EXPECT_EQ(snap1[audio.size() - 1], audio[audio.size() - 1]);
+
+    // Pipeline still drains the audio in evaluate.
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FALSE(j["diagnostics"].contains("failure_reason"))
+        << "evaluate should still see the audio after a snapshot";
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, SnapshotAudioRespectsCallerCapacity) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    std::vector<float> audio(8000, 0.5f);
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    std::vector<float> small(1000, 0.0f);
+    size_t n = 0;
+    ASSERT_EQ(sentlog_snapshot_audio(h, small.data(), small.size(), &n),
+              SENTLOG_OK);
+    EXPECT_EQ(n, 1000u);  // capped at caller capacity, not what's available
+
+    sentlog_destroy(h);
+}
+
 TEST(PipelineTest, NoRoutePushedDefaultsToZero) {
     sentlog_status_t s;
     auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);

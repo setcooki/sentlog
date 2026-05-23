@@ -38,6 +38,13 @@ public:
     // doesn't have enough available.
     size_t read(float* out, size_t num_samples) noexcept;
 
+    // Non-destructive read: copies up to num_samples without
+    // advancing the read index. Returns the number of samples
+    // actually copied. Used by sentlog_snapshot_audio so the
+    // platform binding can pull the captured audio into AASIST-L
+    // inference before the pipeline drains the ring.
+    size_t peek(float* out, size_t num_samples) const noexcept;
+
     // Consumer side. Number of samples currently readable.
     size_t available() const noexcept;
 

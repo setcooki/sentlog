@@ -226,6 +226,26 @@ sentlog_status_t sentlog_set_audio_route(
     sentlog_handle_t* handle,
     sentlog_audio_route_t route);
 
+/* Non-destructively read the captured audio out of the ring buffer.
+ * Used by the platform binding to run utterance-level inference
+ * (e.g. AASIST-L liveness) without consuming the audio — the pipeline
+ * still drains it at sentlog_evaluate time.
+ *
+ *   out_samples   Caller-supplied buffer. Must hold at least
+ *                 out_capacity floats.
+ *   out_capacity  Number of samples the buffer can hold.
+ *   out_written   Out-param: actual number of samples written
+ *                 (min of out_capacity and available samples).
+ *
+ * Safe to call from the binding's inference thread; the read is
+ * lock-free and concurrent with sentlog_push_audio_frame on the
+ * audio thread. */
+sentlog_status_t sentlog_snapshot_audio(
+    sentlog_handle_t* handle,
+    float* out_samples,
+    size_t out_capacity,
+    size_t* out_written);
+
 /* Stop capture and run evaluation. Result arrives via cb on the I/O thread. */
 sentlog_status_t sentlog_evaluate(
     sentlog_handle_t* handle,

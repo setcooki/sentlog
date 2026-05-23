@@ -148,6 +148,36 @@ public enum Sentlog {
         }
     }
 
+    /// Run AASIST-L over the captured audio if the model is bundled.
+    /// Safe to call always — if the model file isn't present, this
+    /// is a no-op and the pipeline emits the placeholder liveness.
+    private static func runAasistAndPushLiveness(handle: OpaquePointer) {
+        guard let modelURL = Bundle.module.url(
+            forResource: "aasist_l", withExtension: "onnx"
+        ) else { return }
+
+        let capacity = AasistLivenessRunner.targetSamples
+        var buf = [Float](repeating: 0, count: capacity)
+        var written: size_t = 0
+        let snapshotStatus = buf.withUnsafeMutableBufferPointer { ptr -> sentlog_status_t in
+            sentlog_snapshot_audio(handle, ptr.baseAddress, capacity, &written)
+        }
+        guard snapshotStatus == SENTLOG_OK, written > 0 else { return }
+        let audioSlice = written == capacity ? buf : Array(buf.prefix(Int(written)))
+
+        do {
+            let runner = try AasistLivenessRunner(modelPath: modelURL.path)
+            let result = try runner.infer(audioSlice)
+            _ = sentlog_push_liveness_result(
+                handle, result.score, result.replayRisk, result.syntheticRisk
+            )
+        } catch {
+            // ORT failure shouldn't fail the whole evaluation — the
+            // pipeline carries the placeholder liveness and
+            // model_versions.liveness flags it.
+        }
+    }
+
     /// Stop capture and run the evaluation pipeline. Returns when the
     /// pipeline completes.
     public static func evaluate() async throws -> SentlogResult {
@@ -159,6 +189,12 @@ public enum Sentlog {
             vadStream = nil
             return try requireHandleLocked()
         }()
+
+        // AASIST-L liveness inference if the bundled model is present.
+        // Runs BEFORE the native evaluate so the pushed result lands
+        // in the pipeline. Snapshot is non-destructive; pipeline still
+        // drains audio in sentlog_evaluate.
+        runAasistAndPushLiveness(handle: h)
 
         let resultJson: String = try await withCheckedThrowingContinuation { cont in
             let box = NativeBridge.ResultBox(cont)

@@ -45,6 +45,8 @@ internal object NativeBridge {
     @JvmStatic external fun nativePushVadFrame(handle: Long, startSample: Long, numSamples: Int, probability: Float): Int
     @JvmStatic external fun nativePushLivenessResult(handle: Long, score: Float, replayRisk: Float, syntheticRisk: Float): Int
     @JvmStatic external fun nativeSetAudioRoute(handle: Long, route: Int): Int
+    /** Non-destructive snapshot. Returns the number of samples written into [out]. */
+    @JvmStatic external fun nativeSnapshotAudio(handle: Long, out: FloatArray): Int
     @JvmStatic external fun nativeEvaluate(handle: Long, resultCb: ResultCallback): Int
 
     // Mirrors sentlog_audio_route_t in sentlog.h.

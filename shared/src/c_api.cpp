@@ -129,6 +129,17 @@ sentlog_status_t sentlog_set_audio_route(sentlog_handle_t* handle,
     return SENTLOG_OK;
 }
 
+sentlog_status_t sentlog_snapshot_audio(sentlog_handle_t* handle,
+                                        float* out_samples,
+                                        size_t out_capacity,
+                                        size_t* out_written) {
+    if (handle == nullptr || out_samples == nullptr || out_written == nullptr) {
+        return SENTLOG_ERR_INVALID_STATE;
+    }
+    *out_written = handle->state->snapshot_audio(out_samples, out_capacity);
+    return SENTLOG_OK;
+}
+
 sentlog_status_t sentlog_evaluate(sentlog_handle_t* handle,
                                   sentlog_result_cb_t cb,
                                   void* userdata) {

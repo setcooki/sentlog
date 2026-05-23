@@ -75,6 +75,43 @@ TEST(RingBufferTest, ResetClears) {
     EXPECT_EQ(rb.overflow_count(), 0u);
 }
 
+TEST(RingBufferTest, PeekDoesNotAdvance) {
+    RingBuffer rb(16);
+    std::array<float, 4> in = {1.0f, 2.0f, 3.0f, 4.0f};
+    rb.write(in.data(), in.size());
+
+    std::array<float, 4> out{};
+    EXPECT_EQ(rb.peek(out.data(), out.size()), 4u);
+    EXPECT_EQ(out[0], 1.0f);
+    EXPECT_EQ(out[3], 4.0f);
+    EXPECT_EQ(rb.available(), 4u) << "peek must not consume";
+
+    // Peeking twice yields the same data.
+    std::array<float, 4> out2{};
+    EXPECT_EQ(rb.peek(out2.data(), out2.size()), 4u);
+    EXPECT_EQ(out2[0], 1.0f);
+
+    // A real read after peek still gets the same samples.
+    std::array<float, 4> consumed{};
+    EXPECT_EQ(rb.read(consumed.data(), consumed.size()), 4u);
+    EXPECT_EQ(consumed[0], 1.0f);
+    EXPECT_EQ(rb.available(), 0u);
+}
+
+TEST(RingBufferTest, PeekRespectsCapacity) {
+    RingBuffer rb(8);
+    std::array<float, 4> in = {1.0f, 2.0f, 3.0f, 4.0f};
+    rb.write(in.data(), in.size());
+
+    std::array<float, 10> out{};
+    EXPECT_EQ(rb.peek(out.data(), out.size()), 4u);
+}
+
+TEST(RingBufferTest, PeekNullPointerSafe) {
+    RingBuffer rb(8);
+    EXPECT_EQ(rb.peek(nullptr, 4), 0u);
+}
+
 // Lock-free producer/consumer correctness — two threads, one writing
 // counters, the other reading and checking strict ordering.
 TEST(RingBufferTest, ConcurrentProducerConsumer) {

@@ -252,6 +252,30 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeSetAudioRoute(
 }
 
 JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativeSnapshotAudio(
+    JNIEnv* env, jclass /*clazz*/, jlong handle, jfloatArray out) {
+
+    if (out == nullptr) return 0;
+    const jsize cap = env->GetArrayLength(out);
+    if (cap <= 0) return 0;
+
+    // Fill into a heap buffer then copy to the Java array. Two-step
+    // because env->Get/SetFloatArrayElements would lock the array and
+    // we'd hold the lock across the C ABI call.
+    std::unique_ptr<float[]> buf(new (std::nothrow) float[cap]);
+    if (!buf) return 0;
+    size_t written = 0;
+    const sentlog_status_t s = sentlog_snapshot_audio(
+        native_from_jlong(handle),
+        buf.get(),
+        static_cast<size_t>(cap),
+        &written);
+    if (s != SENTLOG_OK) return 0;
+    env->SetFloatArrayRegion(out, 0, static_cast<jsize>(written), buf.get());
+    return static_cast<jint>(written);
+}
+
+JNIEXPORT jint JNICALL
 Java_me_cooki_sentlog_internal_NativeBridge_nativePushAudioFrame(
     JNIEnv* env, jclass /*clazz*/, jlong handle,
     jfloatArray samples, jint num_samples) {
