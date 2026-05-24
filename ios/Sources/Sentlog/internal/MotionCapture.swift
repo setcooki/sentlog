@@ -1,4 +1,5 @@
 import Foundation
+import SentlogCore   // sentlog_status_t from shared/include/sentlog/sentlog.h
 #if os(iOS) || os(watchOS) || os(visionOS)
 import CoreMotion
 #endif
