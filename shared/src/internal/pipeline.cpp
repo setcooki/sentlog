@@ -148,6 +148,11 @@ std::string Pipeline::run(const Config& config,
     } else if (snr_db > 0.0f && snr_db < 3.0f) {
         failure_reason = "TooNoisy";
     }
+    // Language mismatch is decided inside the transcript block below;
+    // we apply it as a lowest-priority failure reason once the block
+    // has run. See `language_mismatch` initialisation a few lines
+    // down — this `if (failure_reason == nullptr && ...)` check fires
+    // at the end of section 4.
 
     // 4. Transcript — pushed by platform-side whisper.cpp if present
     //    (chunks 2b/2c); otherwise schema-correct placeholder so the
@@ -156,7 +161,16 @@ std::string Pipeline::run(const Config& config,
     //    target_match (chunk 2d) is computed here when both a pushed
     //    transcript and config.target_phrase are present. Otherwise
     //    it stays null. See text_match.{h,cpp} for the comparison.
+    //
+    //    Language gating (chunk 2e): when the pushed transcript's
+    //    language doesn't match config.language_hint we surface that
+    //    in diagnostics and downgrade confidence below. We compare
+    //    case-insensitively but otherwise byte-for-byte — the SDK
+    //    doesn't try to normalize ISO 639-1 vs 639-2 (e.g. "en" vs
+    //    "eng"); integrators that need that normalisation can do it
+    //    on the way in.
     std::optional<float> target_match_score;
+    bool language_mismatch = false;
     {
         json t;
         if (pushed_transcript.has_value()) {
@@ -178,6 +192,22 @@ std::string Pipeline::run(const Config& config,
                 target_match_score = target_match_ratio(
                     pushed_transcript->text, *config.target_phrase);
             }
+            if (!config.language_hint.empty()) {
+                // case-insensitive ASCII compare
+                const auto& a = pushed_transcript->language;
+                const auto& b = config.language_hint;
+                if (a.size() != b.size()) {
+                    language_mismatch = true;
+                } else {
+                    for (size_t k = 0; k < a.size(); ++k) {
+                        const char ca = static_cast<char>(std::tolower(
+                            static_cast<unsigned char>(a[k])));
+                        const char cb = static_cast<char>(std::tolower(
+                            static_cast<unsigned char>(b[k])));
+                        if (ca != cb) { language_mismatch = true; break; }
+                    }
+                }
+            }
         } else {
             t["text"]       = "";
             t["language"]   = config.language_hint;
@@ -189,6 +219,13 @@ std::string Pipeline::run(const Config& config,
             t["target_match"] = nullptr;
         }
         result["transcript"] = t;
+    }
+
+    // Apply language mismatch as the lowest-priority failure reason
+    // — TooShort/TooNoisy/NoSpeechDetected describe bigger problems,
+    // so don't shadow them.
+    if (failure_reason == nullptr && language_mismatch) {
+        failure_reason = "LanguageMismatch";
     }
 
     // 5. Liveness — pushed AASIST-L result if present; otherwise
@@ -230,7 +267,12 @@ std::string Pipeline::run(const Config& config,
     // [0,1] score; thresholds_met below applies the config threshold.
     const float direction = target_match_score.value_or(0.0f);
     result["direction"]      = direction;
-    result["confidence"]     = vad_report.has_speech() ? 0.6f : 0.0f;
+    // Confidence baseline is the existing speech/no-speech split.
+    // Language mismatch (chunk 2e) halves it — non-target-language
+    // ASR isn't trustworthy enough to surface as a confident result.
+    float base_confidence = vad_report.has_speech() ? 0.6f : 0.0f;
+    if (language_mismatch) base_confidence *= 0.5f;
+    result["confidence"]     = base_confidence;
     // thresholds_met is the only place threshold values are consumed
     // per the spec. Phase 2 reads direction_threshold; the rest of
     // the per-metric thresholds light up as their scores land
@@ -287,6 +329,10 @@ std::string Pipeline::run(const Config& config,
         if (snr_db > 0.0f)             d["snr_db"]         = snr_db;
         d["duration_ms"]    = duration_ms;
         d["audio_quality"]  = audio_quality_label(snr_db, vad_report.has_speech());
+        if (pushed_transcript.has_value()) {
+            d["detected_language"] = pushed_transcript->language;
+            d["language_mismatch"] = language_mismatch;
+        }
         result["diagnostics"] = d;
     }
 

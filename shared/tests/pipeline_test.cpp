@@ -734,6 +734,133 @@ TEST(PipelineTest, ThresholdsMetHonorsConfiguredThreshold) {
     sentlog_destroy(h);
 }
 
+// --- Language gating (chunk 2e) ---
+
+namespace {
+const char* kConfigEnglishHint =
+    R"({"issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "language_hint": "en"})";
+}  // namespace
+
+TEST(PipelineTest, LanguageMatchSurfacesNoMismatch) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigEnglishHint, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    const char* t = R"({"text":"hello","language":"en","confidence":0.9})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_EQ(j["diagnostics"]["detected_language"], "en");
+    EXPECT_FALSE(j["diagnostics"]["language_mismatch"].get<bool>());
+    EXPECT_FALSE(j["diagnostics"].contains("failure_reason"));
+    EXPECT_FLOAT_EQ(j["confidence"].get<float>(), 0.6f);
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, LanguageMismatchHalvesConfidenceAndFlags) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigEnglishHint, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    const char* t = R"({"text":"bonjour","language":"fr","confidence":0.9})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_EQ(j["diagnostics"]["detected_language"],         "fr");
+    EXPECT_TRUE(j["diagnostics"]["language_mismatch"].get<bool>());
+    EXPECT_EQ(j["diagnostics"]["failure_reason"],            "LanguageMismatch");
+    EXPECT_FLOAT_EQ(j["confidence"].get<float>(), 0.3f)
+        << "0.6 baseline × 0.5 mismatch penalty";
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, LanguageCaseInsensitiveMatch) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigEnglishHint, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    const char* t = R"({"text":"hi","language":"EN","confidence":0.9})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_FALSE(j["diagnostics"]["language_mismatch"].get<bool>());
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, LanguageMismatchDoesNotShadowAudioFailure) {
+    // Audio is silence — NoSpeechDetected should win over
+    // LanguageMismatch because the audio problem is the bigger one.
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigEnglishHint, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto silence = make_silence_2s();
+    sentlog_push_audio_frame(h, silence.data(), silence.size());
+
+    const char* t = R"({"text":"bonjour","language":"fr","confidence":0.9})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_EQ(j["diagnostics"]["failure_reason"], "NoSpeechDetected")
+        << "audio-quality failure outranks language mismatch";
+    // language_mismatch still surfaces as a separate flag so the
+    // integrator sees both signals.
+    EXPECT_TRUE(j["diagnostics"]["language_mismatch"].get<bool>());
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, NoTranscriptOmitsLanguageDiagnostics) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigEnglishHint, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    // No push_transcript call.
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_FALSE(j["diagnostics"].contains("detected_language"));
+    EXPECT_FALSE(j["diagnostics"].contains("language_mismatch"));
+    EXPECT_FALSE(j["diagnostics"].contains("failure_reason"));
+
+    sentlog_destroy(h);
+}
+
 TEST(PipelineTest, NoRoutePushedDefaultsToZero) {
     sentlog_status_t s;
     auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
