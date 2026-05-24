@@ -48,7 +48,7 @@ let package = Package(
                 .product(name: "SentlogCore", package: "shared"),
                 .product(name: "onnxruntime",
                          package: "onnxruntime-swift-package-manager"),
-                .product(name: "whisper", package: "whisper"),
+                .product(name: "whisper", package: "whisper.cpp"),
             ],
             path: "Sources/Sentlog",
             resources: [
