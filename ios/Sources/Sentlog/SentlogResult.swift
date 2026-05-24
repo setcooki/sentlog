@@ -162,6 +162,7 @@ public struct ModelVersions: Codable, Sendable, Equatable {
     public let liveness: String
     public let asr:      String
     public let prosody:  String
+    public let vad:      String
     public let affect:   String?
     public let manifest: String
 }

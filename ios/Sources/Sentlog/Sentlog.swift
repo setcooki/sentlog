@@ -205,25 +205,39 @@ public enum Sentlog {
     /// Stop capture and run the evaluation pipeline. Returns when the
     /// pipeline completes.
     public static func evaluate() async throws -> SentlogResult {
-        let h = try { () throws -> OpaquePointer in
+        // The whole synchronous critical section runs under stateLock:
+        // we need to keep the C handle `h` alive against a concurrent
+        // destroy() while AASIST + whisper snapshot + push into it,
+        // and while sentlog_evaluate runs. The C ABI guarantees the
+        // result callback fires synchronously from inside
+        // sentlog_evaluate (see c_api.cpp), so the continuation has
+        // already resolved by the time we release the lock and start
+        // the await.
+        let resultJson: String = try await withCheckedThrowingContinuation { cont in
             stateLock.lock()
             defer { stateLock.unlock() }
-            audio?.stop()
-            audio = nil
-            vadStream = nil
-            return try requireHandleLocked()
-        }()
 
-        // Run AASIST-L (utterance liveness) and whisper.cpp (ASR) in
-        // sequence BEFORE the native evaluate so their pushed results
-        // land in the pipeline. Both are best-effort — failure leaves
-        // the corresponding placeholder in place and model_versions.*
-        // flags it. Snapshots are non-destructive; the pipeline still
-        // drains the audio inside sentlog_evaluate.
-        runAasistAndPushLiveness(handle: h)
-        runWhisperAndPushTranscript(handle: h)
+            let h: OpaquePointer
+            do {
+                audio?.stop()
+                audio = nil
+                vadStream = nil
+                h = try requireHandleLocked()
+            } catch {
+                cont.resume(throwing: error)
+                return
+            }
 
-        let resultJson: String = try await withCheckedThrowingContinuation { cont in
+            // Run AASIST-L (utterance liveness) and whisper.cpp (ASR)
+            // in sequence BEFORE the native evaluate so their pushed
+            // results land in the pipeline. Snapshots are
+            // non-destructive; the pipeline still drains the audio
+            // inside sentlog_evaluate. Both are best-effort —
+            // failure leaves the corresponding placeholder in place
+            // and model_versions.* flags it.
+            runAasistAndPushLiveness(handle: h)
+            runWhisperAndPushTranscript(handle: h)
+
             let box = NativeBridge.ResultBox(cont)
             let userdata = Unmanaged.passRetained(box).toOpaque()
             let cb: sentlog_result_cb_t = { status, resultCStr, userdata in
@@ -237,15 +251,11 @@ public enum Sentlog {
                 }
                 box.continuation?.resume(returning: String(cString: resultCStr))
             }
-            let kickoffStatus = sentlog_evaluate(h, cb, userdata)
-            if kickoffStatus != SENTLOG_OK {
-                // The callback won't fire — release the retained box and
-                // surface the error directly.
-                Unmanaged<NativeBridge.ResultBox>
-                    .fromOpaque(userdata).release()
-                cont.resume(throwing:
-                    SentlogError(status: kickoffStatus, context: "evaluate"))
-            }
+            // sentlog_evaluate always fires cb synchronously — even on
+            // failure — per the C ABI contract (c_api.cpp). We don't
+            // need to handle a "kickoff failed without cb firing"
+            // branch; the continuation is always resolved by cb.
+            _ = sentlog_evaluate(h, cb, userdata)
         }
 
         guard let data = resultJson.data(using: .utf8) else {
@@ -304,13 +314,9 @@ public enum Sentlog {
                 }
                 box.continuation?.resume(returning: String(cString: updateCStr))
             }
-            let kickoffStatus = sentlog_check_for_updates(h, cb, userdata)
-            if kickoffStatus != SENTLOG_OK {
-                Unmanaged<NativeBridge.UpdateBox>
-                    .fromOpaque(userdata).release()
-                cont.resume(throwing:
-                    SentlogError(status: kickoffStatus, context: "checkForUpdates"))
-            }
+            // The Phase 1/2 stub fires cb synchronously per the C ABI;
+            // no "kickoff failed without cb" branch needed.
+            _ = sentlog_check_for_updates(h, cb, userdata)
         }
         guard let data = updateJson.data(using: .utf8) else {
             throw SentlogError(status: SENTLOG_ERR_INTERNAL,

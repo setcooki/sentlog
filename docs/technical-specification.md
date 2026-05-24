@@ -252,6 +252,7 @@ ModelVersions {
     liveness:    String
     asr:         String
     prosody:     String
+    vad:         String
     affect:      String?
     manifest:    String
 }

@@ -129,6 +129,7 @@ public data class ModelVersions(
     val liveness: String,
     val asr:      String,
     val prosody:  String,
+    val vad:      String,
     val affect:   String? = null,
     val manifest: String,
 )

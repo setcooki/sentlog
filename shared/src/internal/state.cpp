@@ -222,8 +222,12 @@ std::string State::capabilities_json() const {
     j["motion_sensors"]         = false;  // platform-side; not wired yet
     j["video_face_mesh"]        = false;  // platform-side; not wired yet
     j["device_integrity_check"] = false;  // platform-side; not wired yet
-    j["ota_updates"]            = true;   // checkForUpdates implemented in Phase 7
-    j["local_queue"]            = true;
+    // ota_updates / local_queue stay false until their real impls
+    // land (Phase 7 / Phase 4). The C ABI accepts the calls today
+    // but the implementations are no-op stubs — reporting true here
+    // would mislead integrators reading capabilities() at startup.
+    j["ota_updates"]            = false;
+    j["local_queue"]            = false;
     j["runtime"]                = "native";
     return j.dump();
 }
@@ -236,6 +240,7 @@ std::string State::model_versions_json() const {
     j["liveness"] = "0.0.0-phase1";
     j["asr"]      = "0.0.0-phase1";
     j["prosody"]  = "0.0.0-phase1";
+    j["vad"]      = "0.0.0-phase1";
     j["manifest"] = "0.0.0-phase1";
     return j.dump();
 }

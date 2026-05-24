@@ -212,3 +212,112 @@ TEST(CApiTest, StringFreeNullIsSafe) {
     sentlog_string_free(nullptr);
     SUCCEED();
 }
+
+// --- Error-path coverage (pre-Phase-3 improvement pass) ---
+//
+// Every status code in sentlog_status_t should have at least one test
+// that produces it. The phases above ship the OK paths; these tests
+// pin the error paths down so future refactors don't quietly turn an
+// error into success.
+
+TEST(CApiTest, EvaluateWithoutStartCaptureFailsLifecycle) {
+    sentlog_status_t status = SENTLOG_OK;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &status);
+    ASSERT_NE(h, nullptr);
+
+    ResultCapture cap;
+    // No sentlog_start_capture first.
+    EXPECT_EQ(sentlog_evaluate(h, &result_cb, &cap), SENTLOG_OK)
+        << "sentlog_evaluate always returns OK and fires cb with the error";
+    EXPECT_TRUE(cap.called);
+    EXPECT_EQ(cap.status, SENTLOG_ERR_INVALID_STATE);
+
+    sentlog_destroy(h);
+}
+
+TEST(CApiTest, EvaluateWithNullCallbackIsInvalidConfig) {
+    sentlog_status_t status = SENTLOG_OK;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &status);
+    ASSERT_NE(h, nullptr);
+
+    EXPECT_EQ(sentlog_evaluate(h, nullptr, nullptr),
+              SENTLOG_ERR_INVALID_CONFIG);
+
+    sentlog_destroy(h);
+}
+
+TEST(CApiTest, PushAudioFrameOutsideCaptureFailsLifecycle) {
+    sentlog_status_t status = SENTLOG_OK;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &status);
+    ASSERT_NE(h, nullptr);
+
+    std::array<float, 4> samples = {0.1f, 0.2f, 0.3f, 0.4f};
+    EXPECT_EQ(sentlog_push_audio_frame(h, samples.data(), samples.size()),
+              SENTLOG_ERR_INVALID_STATE);
+
+    sentlog_destroy(h);
+}
+
+TEST(CApiTest, SnapshotAudioWithNullArgsFailsInvalidState) {
+    sentlog_status_t status = SENTLOG_OK;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &status);
+    ASSERT_NE(h, nullptr);
+
+    std::array<float, 4> buf{};
+    size_t written = 0;
+    EXPECT_EQ(sentlog_snapshot_audio(nullptr, buf.data(), buf.size(), &written),
+              SENTLOG_ERR_INVALID_STATE);
+    EXPECT_EQ(sentlog_snapshot_audio(h, nullptr, 0, &written),
+              SENTLOG_ERR_INVALID_STATE);
+    EXPECT_EQ(sentlog_snapshot_audio(h, buf.data(), buf.size(), nullptr),
+              SENTLOG_ERR_INVALID_STATE);
+
+    sentlog_destroy(h);
+}
+
+TEST(CApiTest, PushTranscriptMalformedJsonReturnsInvalidConfig) {
+    sentlog_status_t status = SENTLOG_OK;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &status);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+
+    EXPECT_EQ(sentlog_push_transcript(h, "{this is not json"),
+              SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(sentlog_push_transcript(h, R"({"text":"x"})"),
+              SENTLOG_ERR_INVALID_CONFIG)
+        << "missing required language/confidence";
+    EXPECT_EQ(sentlog_push_transcript(h, nullptr),
+              SENTLOG_ERR_INVALID_CONFIG);
+
+    sentlog_destroy(h);
+}
+
+TEST(CApiTest, CreateInvalidJsonReturnsInvalidConfig) {
+    sentlog_status_t status = SENTLOG_OK;
+    auto* h = sentlog_create("{not valid json", nullptr, nullptr, &status);
+    EXPECT_EQ(h, nullptr);
+    EXPECT_EQ(status, SENTLOG_ERR_INVALID_CONFIG);
+}
+
+TEST(CApiTest, NullHandleOperationsAreSafe) {
+    // The C ABI guarantees null-handle calls don't crash; they return
+    // INVALID_STATE for failable ops and silently no-op for the
+    // void-returning ones.
+    EXPECT_EQ(sentlog_start_capture(nullptr), SENTLOG_ERR_INVALID_STATE);
+    EXPECT_EQ(sentlog_push_audio_frame(nullptr, nullptr, 0),
+              SENTLOG_ERR_INVALID_STATE);
+    EXPECT_EQ(sentlog_push_vad_frame(nullptr, 0, 0, 0.5f),
+              SENTLOG_ERR_INVALID_STATE);
+    EXPECT_EQ(sentlog_push_liveness_result(nullptr, 0.5f, 0.0f, 0.0f),
+              SENTLOG_ERR_INVALID_STATE);
+    EXPECT_EQ(sentlog_push_transcript(nullptr, "{}"),
+              SENTLOG_ERR_INVALID_STATE);
+    EXPECT_EQ(sentlog_set_audio_route(nullptr, SENTLOG_AUDIO_ROUTE_BUILT_IN),
+              SENTLOG_ERR_INVALID_STATE);
+    EXPECT_EQ(sentlog_get_permissions(nullptr), nullptr);
+    EXPECT_EQ(sentlog_get_capabilities(nullptr), nullptr);
+    EXPECT_EQ(sentlog_model_versions(nullptr), nullptr);
+    sentlog_cancel(nullptr);   // void; just must not crash
+    sentlog_destroy(nullptr);  // void; just must not crash
+    SUCCEED();
+}

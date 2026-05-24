@@ -35,6 +35,13 @@ internal final class AudioCapture {
     private var targetFormat: AVAudioFormat?
     private var isRunning = false
 
+    /// Serialises the tap callback against stop(). AVAudioEngine's
+    /// removeTap is sync but does NOT wait for an in-flight tap
+    /// callback to finish — without this lock, stop() can return
+    /// while handleTap is mid-pushFrame, which then sees a freed
+    /// C handle if destroy() runs before the tap completes.
+    private let tapLock = NSLock()
+
     init(pushFrame: @escaping PushFrame,
          vad: SileroVadStream? = nil,
          pushVad: PushVad? = nil) {
@@ -108,12 +115,20 @@ internal final class AudioCapture {
         isRunning = false
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        // Drain barrier: any tap callback that started before we
+        // flipped isRunning is currently inside the lock; acquiring
+        // it once forces us to wait for that callback to release.
+        // Taps that start after this point see !isRunning and early-out.
+        tapLock.lock()
+        tapLock.unlock()
         #if os(iOS) || os(tvOS) || os(visionOS)
         try? AVAudioSession.sharedInstance().setActive(false, options: [])
         #endif
     }
 
     private func handleTap(_ inBuffer: AVAudioPCMBuffer) {
+        tapLock.lock()
+        defer { tapLock.unlock() }
         guard isRunning,
               let converter,
               let targetFormat else { return }

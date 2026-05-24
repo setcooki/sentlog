@@ -184,42 +184,45 @@ public object Sentlog {
      * pipeline completes.
      */
     public suspend fun evaluate(): SentlogResult = withContext(Dispatchers.IO) {
-        val h = requireHandle()
-        audio?.stop()
-        audio = null
-        vadStream?.close()
-        vadStream = null
-
-        // Run AASIST-L (utterance liveness) and whisper.cpp (ASR) in
-        // sequence BEFORE the native evaluate so their pushed results
-        // land in the pipeline. Snapshots are non-destructive; the
-        // pipeline still drains the audio inside sentlog_evaluate.
-        // Both are best-effort — a failure in either leaves the
-        // pipeline emitting the corresponding placeholder.
-        runAasistAndPushLiveness(h)
-        runWhisperAndPushTranscript(h)
-
         val deferred = CompletableDeferred<SentlogResult>()
-        val cb = object : ResultCallback() {
-            override fun onResult(status: Int, resultJson: String?) {
-                if (status != NativeBridge.STATUS_OK || resultJson == null) {
-                    deferred.completeExceptionally(
-                        IllegalStateException("evaluate failed (status=$status)")
-                    )
-                    return
-                }
-                try {
-                    deferred.complete(
-                        json.decodeFromString(SentlogResult.serializer(), resultJson)
-                    )
-                } catch (e: Exception) {
-                    deferred.completeExceptionally(e)
+        // The whole synchronous critical section runs under the
+        // singleton monitor so a concurrent cancel() / destroy() /
+        // initialize() can't free the C handle while AASIST + whisper
+        // are snapshotting + pushing into it, or while sentlog_evaluate
+        // is running. The C ABI guarantees the result callback fires
+        // synchronously from inside sentlog_evaluate (c_api.cpp), so
+        // `deferred` is already completed by the time we exit the
+        // synchronized block and `await` returns immediately.
+        synchronized(this@Sentlog) {
+            val h = requireHandle()
+            audio?.stop()
+            audio = null
+            vadStream?.close()
+            vadStream = null
+
+            runAasistAndPushLiveness(h)
+            runWhisperAndPushTranscript(h)
+
+            val cb = object : ResultCallback() {
+                override fun onResult(status: Int, resultJson: String?) {
+                    if (status != NativeBridge.STATUS_OK || resultJson == null) {
+                        deferred.completeExceptionally(
+                            IllegalStateException("evaluate failed (status=$status)")
+                        )
+                        return
+                    }
+                    try {
+                        deferred.complete(
+                            json.decodeFromString(SentlogResult.serializer(), resultJson)
+                        )
+                    } catch (e: Exception) {
+                        deferred.completeExceptionally(e)
+                    }
                 }
             }
-        }
-        val initialStatus = NativeBridge.nativeEvaluate(h, cb)
-        if (initialStatus != NativeBridge.STATUS_OK) {
-            throw IllegalStateException("evaluate kickoff failed (status=$initialStatus)")
+            // nativeEvaluate fires cb synchronously even on failure
+            // — no "kickoff failed without cb" branch needed.
+            NativeBridge.nativeEvaluate(h, cb)
         }
         deferred.await()
     }
