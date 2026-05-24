@@ -3,8 +3,6 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
-#include <random>
-#include <string>
 #include <vector>
 
 using sentlog::internal::compute_fingerprint;
@@ -22,14 +20,6 @@ std::vector<float> make_sine(float hz, float seconds, float amp = 0.5f) {
         v[i] = amp * std::sin(2.0f * kPi * hz * t);
     }
     return v;
-}
-
-size_t hamming_distance(const std::string& a, const std::string& b) {
-    const size_t n = std::min(a.size(), b.size());
-    size_t d = 0;
-    for (size_t i = 0; i < n; ++i) if (a[i] != b[i]) ++d;
-    d += (a.size() > b.size() ? a.size() - n : b.size() - n);
-    return d;
 }
 }  // namespace
 
