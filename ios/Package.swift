@@ -30,14 +30,18 @@ let package = Package(
             url: "https://github.com/microsoft/onnxruntime-swift-package-manager",
             exact: "1.17.0"
         ),
-        // whisper.cpp — Phase 2 ASR. Pinned to v1.7.1, same tag as
-        // the Android FetchContent in android/sentlog/src/main/cpp/
-        // CMakeLists.txt, so the C++/ggml code is identical on both
-        // platforms. CPU-only — Core ML acceleration on iOS is a
-        // follow-up that needs a quantised CoreML companion model.
+        // whisper.cpp — Phase 2 ASR. Pinned by revision (the v1.7.1
+        // tag SHA) because the upstream Package.swift uses
+        // `.unsafeFlags(...)` for ggml's -O3 / -fno-objc-arc tuning,
+        // and SwiftPM forbids version-based pinning on packages with
+        // unsafe flags. .revision() is the supported escape hatch.
+        // Same tag SHA as the Android FetchContent pin in
+        // android/sentlog/src/main/cpp/CMakeLists.txt so both
+        // platforms run identical C++ / ggml code per ADR 0009.
+        // CPU-only — Core ML acceleration on iOS is a follow-up.
         .package(
             url: "https://github.com/ggerganov/whisper.cpp",
-            exact: "1.7.1"
+            revision: "ebca09a3d1033417b0c630bbbe607b0f185b1488"  // v1.7.1
         ),
     ],
     targets: [
