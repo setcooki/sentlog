@@ -54,7 +54,7 @@ class SentlogResultDeserializationTest {
           },
           "affect": null,
           "fingerprint": {
-            "algo": "chromaprint-v2",
+            "algo": "sentlog-pcp-v1",
             "bytes": "Zm9vYmFyYmF6"
           },
           "model_versions": {
@@ -80,7 +80,7 @@ class SentlogResultDeserializationTest {
         assertEquals(EvidenceGrade.DeviceUnattested, result.evidenceGrade)
         assertEquals(EngagementModelStatus.Training, result.engagement.modelStatus)
         assertEquals(AudioQuality.Moderate, result.diagnostics.audioQuality)
-        assertEquals("chromaprint-v2", result.fingerprint.algo)
+        assertEquals("sentlog-pcp-v1", result.fingerprint.algo)
         assertNotNull(result.presence.motion)
     }
 
@@ -96,7 +96,7 @@ class SentlogResultDeserializationTest {
           "confidence": 0.5,
           "thresholds_met": false,
           "engagement": {"score": 0.5, "voice_score": 0.5, "model_status": "placeholder"},
-          "fingerprint": {"algo": "chromaprint-v2", "bytes": ""},
+          "fingerprint": {"algo": "sentlog-pcp-v1", "bytes": ""},
           "model_versions": {"liveness": "x", "asr": "x", "prosody": "x", "vad": "x", "manifest": "x"},
           "diagnostics": {"duration_ms": 0, "audio_quality": "quiet"},
           "evidence_grade": "DeviceUnattested",

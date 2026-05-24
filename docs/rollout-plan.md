@@ -104,7 +104,9 @@ scores correctly against `target_phrase`.
 - `engagement` returns ensemble of voice signals; surfaced as
   `engagement.voice_score` with overall `engagement.score`;
   `engagement_model_status: "training"`.
-- Chromaprint perceptual fingerprint, always computed.
+- Perceptual audio fingerprint (`sentlog-pcp-v1` — homegrown MIT
+  Goertzel-based delta hash; Chromaprint was dropped over LGPL
+  static-link burden), always computed.
 - **Configurable scoring weights** wired through composite-score
   assembly. Named-key validation at `init()` (unknown keys rejected).
   Defaults documented in `docs/scoring-weights.md`.
@@ -259,7 +261,7 @@ Estimated 3–4 weeks of work when scheduled.
 - 15s clip, 16 kHz mono PCM, ≥30 dB SNR
 - Full pipeline: VAD → whisper.cpp tiny Q5_1 (ACFT-style context) →
   eGeMAPS + whisper-probe prosody → AASIST-L liveness → score
-  assembly → Chromaprint fingerprint
+  assembly → sentlog-pcp-v1 fingerprint
 - 20 cold + 20 warm runs per device
 - Video path benchmarked separately when affect mode is the target
 
@@ -331,7 +333,7 @@ ID. No user identifier. No transcription content. No video frames.
 | Android inference speed on mid-range | UX breaking if pipeline > 12s | Benchmark gate (§2); ACFT baseline | Unvalidated until Week 2 |
 | Voice-cloning attacks at scale | Cross-generator liveness 55–80% | Multi-modal scoring; per-attack-class reporting; lip-sync deliberately deferred as cheap-to-activate reserve weapon | Partial — deliberate |
 | AASIST-L pretrained weight licence | (Resolved — was: 4-week slip if non-permissive) | `clovaai/aasist` repo + weights MIT; ASVspoof 2019-LA training data ODC-BY 1.0. Attributions in `THIRD_PARTY_NOTICES.md`. | Resolved — see ADR 0004 |
-| Upstream OSS dependency drift | whisper.cpp / Silero / openSMILE / MediaPipe / Chromaprint stagnate or break | Pin to specific upstream versions; monthly health check; budget for in-house maintenance fork if any project goes silent for 6+ months | Tracking |
+| Upstream OSS dependency drift | whisper.cpp / Silero / openSMILE / MediaPipe stagnate or break | Pin to specific upstream versions; monthly health check; budget for in-house maintenance fork if any project goes silent for 6+ months | Tracking |
 | Engagement model cold start | First 5–7 months scored against thin model | `engagement_model_status` field surfaces truth; integrators forbidden to display engagement until `"trained"` | Managed |
 | Gaming at $0.01 scale | Fraudulent submissions reduce pool value | Multi-modal catches farms; fingerprint forwarding catches duplicates | Addressed |
 | Self-labelled corpus pace | Engagement timeline depends on labelling throughput | Revised to Months 5–7; labelling budget Phase 0 question | Managed |

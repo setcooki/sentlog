@@ -30,7 +30,7 @@ Companion documents:
 | 1.12 | **Audit transmission is one projection of composable forwarding, not a separate channel** | One configuration surface; same primitive supports analytics, fraud, audit, moderation. |
 | 1.13 | **`Transcript` is a first-class field on `SentlogResult`** | Pipeline computes it anyway. |
 | 1.14 | **All code AI-written. Minimise C++ surface area. Sanitizers in CI non-negotiable.** | See §5.6. |
-| 1.15 | **MIT licence, open-source from v1.0** | Aligns with foundational dependencies (whisper.cpp MIT, Silero MIT, MediaPipe Apache 2.0, Chromaprint LGPL). |
+| 1.15 | **MIT licence, open-source from v1.0** | Aligns with foundational dependencies (whisper.cpp MIT, Silero MIT, MediaPipe Apache 2.0). The perceptual audio fingerprint is a homegrown MIT implementation (`sentlog-pcp-v1`) — Chromaprint (LGPL) was considered and dropped because the LGPL static-linking obligations would burden the SDK's single-binary distribution story. |
 | 1.16 | **React Native and Capacitor JS bridges ship with v1.0** as part of the SDK; not deferred to a later release | The first integrator class is expected to be JS-driven hybrid stacks (Ionic / Svelte / React-based PWAs wrapped in Capacitor, or native apps built with React Native). The SDK is unusable to them without bridges. Both bridges are thin wrappers over the same native API surface — distributed as `@sentlog/react-native` and `@sentlog/capacitor` npm packages. |
 | 1.17 | **Types-only entry point published** (`@sentlog/types` or per-bridge `/types` subpath) | Integrator monorepos commonly enforce zero-runtime-dependency policies on their shared/types workspace packages. |
 | 1.18 | **Raw [0,1] scores; no SDK-side calibration or capping** | `thresholds_met` is the only field that uses the threshold values from config. All score fields are unmodified probability outputs. Integrators apply their own calibration on top. |
@@ -219,8 +219,8 @@ Affect {
 }
 
 AudioFingerprint {
-    algo:  "chromaprint-v2"
-    bytes: ByteArray                      // ~120–200 bytes for 15 s
+    algo:  String                         // currently "sentlog-pcp-v1"
+    bytes: ByteArray                      // base64; ~100 chars for 15 s
 }
 
 Diagnostics {
@@ -428,9 +428,13 @@ Projection ∈ {
 ```
 
 The Opus clip is encoded on-demand only when a forwarder projects
-`AudioClip` or `EvidenceClip`. The Chromaprint fingerprint is always
-computed (cheap) and attached to `SentlogResult`, but only transmitted
-by forwarders that project it.
+`AudioClip` or `EvidenceClip`. The perceptual audio fingerprint
+(currently `sentlog-pcp-v1` — a homegrown Goertzel-based temporal-
+delta hash; see `shared/src/internal/fingerprint.{h,cpp}`) is
+always computed (cheap) and attached to `SentlogResult`, but only
+transmitted by forwarders that project it. Chromaprint was
+considered and dropped: it's LGPL and would burden the SDK's
+single-binary distribution story.
 
 ### 4.4 Envelope and signing
 

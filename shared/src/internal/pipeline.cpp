@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "internal/fingerprint.h"
 #include "internal/ring_buffer.h"
 #include "internal/text_match.h"
 #include "internal/vad/vad.h"
@@ -293,13 +294,16 @@ std::string Pipeline::run(const Config& config,
         result["engagement"] = e;
     }
 
-    // 8. Fingerprint — empty in this chunk. Chromaprint integration
-    //    is a small follow-up; the bytes field stays present so the
-    //    schema is stable.
+    // 8. Fingerprint — MIT perceptual hash (Phase 3a). Always
+    //    computed on the captured audio. See fingerprint.{h,cpp} for
+    //    the algorithm; Chromaprint was dropped for licence reasons
+    //    (LGPL would burden the SDK's distribution).
     {
         json f;
-        f["algo"]  = "chromaprint-v2";
-        f["bytes"] = "";
+        f["algo"]  = fingerprint_algo();
+        f["bytes"] = audio.empty()
+            ? std::string{}
+            : compute_fingerprint(audio.data(), audio.size());
         result["fingerprint"] = f;
     }
 

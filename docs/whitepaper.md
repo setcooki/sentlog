@@ -114,8 +114,9 @@ artefact*. Every result carries:
   manifest).
 - A timestamp; optionally an RFC 3161 TSA timestamp when the integrator
   configures a TSA endpoint.
-- A perceptual audio fingerprint (Chromaprint) for duplicate
-  detection without exposing the audio.
+- A perceptual audio fingerprint (`sentlog-pcp-v1`, a homegrown
+  MIT-licensed Goertzel-based delta hash) for duplicate detection
+  without exposing the audio.
 - The transcript with word timings.
 
 Hardware-backed signing (Secure Enclave / Android KeyStore) is
@@ -150,10 +151,13 @@ layer* on which integrators build those things.
 ## 4. Open-Source Positioning
 
 Sentlog ships under MIT. There is no IP defense in the SDK — every
-model architecture used (AASIST-L, whisper, eGeMAPS, Chromaprint,
-MediaPipe Face Mesh) is publicly described, pretrained weights are
-public, libraries are open-source. Sentlog stands on these shoulders
-and provides shoulders for others to stand on.
+model architecture used (AASIST-L, whisper, eGeMAPS, MediaPipe Face
+Mesh) is publicly described, pretrained weights are public, libraries
+are open-source. The perceptual audio fingerprint is a homegrown MIT
+implementation (`sentlog-pcp-v1`) rather than Chromaprint, which is
+LGPL and would push static-linking obligations onto the SDK's
+single-binary distribution. Sentlog stands on these shoulders and
+provides shoulders for others to stand on.
 
 The labelled corpus (see §6 below) is a model-quality investment, not
 an IP moat. It improves the engagement and affect heads as it grows
@@ -206,7 +210,7 @@ for end-customers.
                 │   ├── prosody/    eGeMAPS + whisper-probe       │  ML kernels,
                 │   ├── liveness/   AASIST-L wrapper              │  scoring,
                 │   ├── scoring/    score assembly                │  fingerprint,
-                │   ├── fingerprint/ Chromaprint perceptual hash  │  audio
+                │   ├── fingerprint/ sentlog-pcp-v1 hash          │  audio
                 │   └── config/     SentlogConfig validation      │  arithmetic
                 └────────────────┬───────────────────────────────┘
                                  │

@@ -84,6 +84,10 @@ TEST(PipelineTest, ResultJsonSchemaIsComplete) {
     EXPECT_EQ(j["evidence_grade"], "DeviceUnattested");
     EXPECT_EQ(j["engagement"]["model_status"], "placeholder");
     EXPECT_EQ(j["transcript"]["language"], "en");
+    // Phase 3a: fingerprint always computed; 2 s of speech is well
+    // above the two-frame minimum.
+    EXPECT_EQ(j["fingerprint"]["algo"], "sentlog-pcp-v1");
+    EXPECT_FALSE(j["fingerprint"]["bytes"].get<std::string>().empty());
 
     sentlog_destroy(h);
 }
