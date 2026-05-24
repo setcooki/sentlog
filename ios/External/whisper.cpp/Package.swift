@@ -78,6 +78,14 @@ let package = Package(
                 .headerSearchPath("ggml/src"),
                 .define("GGML_USE_METAL"),
                 .define("NDEBUG"),
+                // ggml-metal.m manages CoreFoundation object
+                // lifetimes manually with explicit retain/release —
+                // it predates and is incompatible with ARC. SwiftPM
+                // compiles .m files with ARC on by default; opt out
+                // for this target. .unsafeFlags is fine here because
+                // the consumer (ios/Package.swift) depends on us by
+                // path — no version-based pinning is involved.
+                .unsafeFlags(["-fno-objc-arc"]),
             ],
             linkerSettings: [
                 .linkedFramework("Metal"),
