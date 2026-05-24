@@ -128,6 +128,15 @@ sentlog_status_t sentlog_push_transcript(sentlog_handle_t* handle,
     return handle->state->push_transcript(transcript_json);
 }
 
+sentlog_status_t sentlog_push_motion_frame(sentlog_handle_t* handle,
+                                           int64_t timestamp_ns,
+                                           float ax, float ay, float az,
+                                           float gx, float gy, float gz) {
+    if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
+    return handle->state->push_motion_frame(
+        timestamp_ns, ax, ay, az, gx, gy, gz);
+}
+
 sentlog_status_t sentlog_set_audio_route(sentlog_handle_t* handle,
                                          sentlog_audio_route_t route) {
     if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;

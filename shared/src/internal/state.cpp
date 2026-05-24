@@ -38,6 +38,10 @@ sentlog_status_t State::start_capture() {
         std::lock_guard<std::mutex> lock(transcript_mutex_);
         pushed_transcript_.reset();
     }
+    {
+        std::lock_guard<std::mutex> lock(motion_mutex_);
+        pushed_motion_frames_.clear();
+    }
     return SENTLOG_OK;
 }
 
@@ -65,10 +69,12 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
         const auto pushed_vad        = snapshot_vad_frames();
         const auto pushed_liveness   = snapshot_liveness();
         const auto pushed_transcript = snapshot_transcript();
+        const auto pushed_motion     = snapshot_motion_frames();
         const auto route             = audio_route();
         *result_json_out = Pipeline::run(config_, ring_,
                                          pushed_vad, pushed_liveness,
-                                         pushed_transcript, route);
+                                         pushed_transcript, pushed_motion,
+                                         route);
     } catch (...) {
         phase_.store(static_cast<int>(LifecyclePhase::Idle),
                      std::memory_order_release);
@@ -87,6 +93,10 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
     {
         std::lock_guard<std::mutex> lock(transcript_mutex_);
         pushed_transcript_.reset();
+    }
+    {
+        std::lock_guard<std::mutex> lock(motion_mutex_);
+        pushed_motion_frames_.clear();
     }
     phase_.store(static_cast<int>(LifecyclePhase::Idle),
                  std::memory_order_release);
@@ -199,6 +209,34 @@ sentlog_status_t State::push_transcript(const char* transcript_json) {
 std::optional<PushedTranscript> State::snapshot_transcript() const {
     std::lock_guard<std::mutex> lock(transcript_mutex_);
     return pushed_transcript_;
+}
+
+namespace {
+// 60 s at 100 Hz upper bound — typical phone IMU is 100 Hz; max
+// supported capture is 60 s. Generous headroom; bytes are tiny.
+constexpr size_t kMaxMotionFrames = 6000;
+}  // namespace
+
+sentlog_status_t State::push_motion_frame(int64_t timestamp_ns,
+                                          float ax, float ay, float az,
+                                          float gx, float gy, float gz) {
+    if (phase() != LifecyclePhase::Capturing) {
+        return SENTLOG_ERR_INVALID_STATE;
+    }
+    std::lock_guard<std::mutex> lock(motion_mutex_);
+    if (pushed_motion_frames_.size() >= kMaxMotionFrames) {
+        // Drop-newest: a runaway producer can't OOM us. Same posture
+        // as the audio ring buffer's drop-newest on overflow.
+        return SENTLOG_OK;
+    }
+    pushed_motion_frames_.push_back(
+        PushedMotionFrame{timestamp_ns, ax, ay, az, gx, gy, gz});
+    return SENTLOG_OK;
+}
+
+std::vector<PushedMotionFrame> State::snapshot_motion_frames() const {
+    std::lock_guard<std::mutex> lock(motion_mutex_);
+    return pushed_motion_frames_;
 }
 
 std::string State::permissions_json() const {

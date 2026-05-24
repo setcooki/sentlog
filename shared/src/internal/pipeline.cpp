@@ -116,11 +116,51 @@ float audio_source_from_route(sentlog_audio_route_t route) {
 
 }  // namespace
 
+namespace {
+
+/// Phase 3c motion-coherence — baseline. Computes the standard
+/// deviation of the accelerometer magnitude across pushed frames
+/// (gravity-bearing axes; we don't separate gravity from motion at
+/// this chunk because the sigma we care about is dominated by
+/// non-gravity dynamics regardless). Maps to [0, 1]:
+///
+///   stddev = 0.00      -> 0.0   (clearly stationary device)
+///   stddev = 0.10      -> 1.0   (held device with normal hand motion)
+///   stddev > 0.10      -> 1.0   (saturates)
+///
+/// Why this metric: a truly static recording (phone on a desk)
+/// produces near-zero stddev; a held device shows small but
+/// consistent hand tremor + speech-coupled motion. A tremor /
+/// speech-coupled FFT analysis (the rollout plan's "real" version)
+/// drops in here in a follow-up; this baseline is enough to
+/// distinguish stationary-from-handheld which is the primary
+/// presence.motion signal.
+float motion_score_from_frames(const std::vector<PushedMotionFrame>& frames) {
+    if (frames.size() < 2) return 0.0f;
+    double sum = 0.0, sumsq = 0.0;
+    for (const auto& f : frames) {
+        const double m = std::sqrt(static_cast<double>(f.ax) * f.ax
+                                 + static_cast<double>(f.ay) * f.ay
+                                 + static_cast<double>(f.az) * f.az);
+        sum   += m;
+        sumsq += m * m;
+    }
+    const double n    = static_cast<double>(frames.size());
+    const double mean = sum / n;
+    const double var  = std::max(0.0, sumsq / n - mean * mean);
+    const double sd   = std::sqrt(var);
+    const double mapped = sd / 0.10;
+    return static_cast<float>(std::clamp(mapped, 0.0, 1.0));
+}
+
+}  // namespace
+
 std::string Pipeline::run(const Config& config,
                           RingBuffer& ring,
                           const std::vector<PushedVadFrame>& pushed_vad,
                           const std::optional<PushedLiveness>& pushed_liveness,
                           const std::optional<PushedTranscript>& pushed_transcript,
+                          const std::vector<PushedMotionFrame>& pushed_motion,
                           sentlog_audio_route_t audio_route) {
     // 1. Drain audio.
     const std::vector<float> audio = drain_audio(ring);
@@ -247,17 +287,36 @@ std::string Pipeline::run(const Config& config,
         result["liveness"] = l;
     }
 
-    // 6. Presence — audio_source derived from the platform-pushed
-    //    audio route (chunk 1f). Built-in mic = 1.0; USB/BT = 0.2;
-    //    loopback/unknown = 0.0. Motion + integrity stay null in
-    //    this chunk; they land in their respective phases.
+    // 6. Presence — audio_source from the platform-pushed audio
+    //    route (chunk 1f). Motion from the buffered IMU when
+    //    use_motion_sensors=true AND samples were pushed
+    //    (chunk 3c). Integrity stays null until Phase 7 (Play
+    //    Integrity / DeviceCheck). Summary is the weighted ensemble
+    //    of the populated sub-fields per scoring_weights.
     {
         const float audio_source = audio_source_from_route(audio_route);
         json p;
         p["audio_source"] = audio_source;
-        // summary is the ensemble of populated sub-fields; for now
-        // only audio_source is populated, so summary = audio_source.
-        p["summary"]      = audio_source;
+
+        std::optional<float> motion_score;
+        if (config.use_motion_sensors && !pushed_motion.empty()) {
+            motion_score = motion_score_from_frames(pushed_motion);
+            p["motion"] = *motion_score;
+        }
+
+        // Weighted ensemble of populated sub-fields. integrity is
+        // absent (Phase 7+) so it doesn't contribute. If only one
+        // sub-field is populated, summary equals it.
+        const float w_audio  = weight_or_default(config, "presence.audio_source");
+        float num = audio_source * w_audio;
+        float den = w_audio;
+        if (motion_score.has_value()) {
+            const float w_motion = weight_or_default(config, "presence.motion");
+            num += *motion_score * w_motion;
+            den += w_motion;
+        }
+        p["summary"] = (den > 0.0f) ? (num / den) : 0.0f;
+
         result["presence"] = p;
     }
 

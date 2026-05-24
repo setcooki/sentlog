@@ -199,6 +199,25 @@ sentlog_status_t sentlog_push_liveness_result(
     float replay_risk,
     float synthetic_risk);
 
+/* Push one accelerometer + gyroscope sample from the platform-side
+ * motion sensor (Android SensorManager / iOS CoreMotion). The
+ * pipeline analyses the buffered samples at evaluate time and
+ * surfaces a [0,1] result in `presence.motion`. Phase 3c+.
+ *
+ *   timestamp_ns  Monotonic clock reading; only relative differences
+ *                 between samples matter to the pipeline.
+ *   ax, ay, az    Accelerometer (m/s^2, includes gravity).
+ *   gx, gy, gz    Gyroscope (rad/s).
+ *
+ * Call at the sensor's native rate (~100 Hz on most phones); the
+ * core caps the per-evaluate buffer so a runaway producer won't
+ * exhaust memory. Real-time-safe: never allocates, never blocks. */
+sentlog_status_t sentlog_push_motion_frame(
+    sentlog_handle_t* handle,
+    int64_t timestamp_ns,
+    float ax, float ay, float az,
+    float gx, float gy, float gz);
+
 /* Push the transcript from platform-side ASR (whisper.cpp). At most
  * one per evaluation; later pushes overwrite earlier ones. Must be
  * called between startCapture and evaluate.

@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -735,6 +736,137 @@ TEST(PipelineTest, ThresholdsMetHonorsConfiguredThreshold) {
     EXPECT_LT(dir, 1.0f);
     EXPECT_TRUE(j["thresholds_met"].get<bool>());
 
+    sentlog_destroy(h);
+}
+
+// --- Motion-coherence (chunk 3c) ---
+
+namespace {
+const char* kConfigWithMotion =
+    R"({"issuer": "did:example:x",
+        "min_duration_ms": 500,
+        "use_motion_sensors": true})";
+
+// Helper: push N motion frames simulating a held device (small
+// per-axis variation around gravity on Y).
+void push_held_motion(sentlog_handle_t* h, size_t n, float sigma) {
+    std::mt19937 rng(0xBEEF);
+    std::normal_distribution<float> jitter(0.0f, sigma);
+    for (size_t i = 0; i < n; ++i) {
+        const float ax = jitter(rng);
+        const float ay = 9.81f + jitter(rng);  // gravity dominates Y
+        const float az = jitter(rng);
+        sentlog_push_motion_frame(h,
+            static_cast<int64_t>(i) * 10'000'000,  // 100 Hz spacing
+            ax, ay, az, 0.0f, 0.0f, 0.0f);
+    }
+}
+}  // namespace
+
+TEST(PipelineTest, MotionAbsentLeavesPresenceMotionUnset) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithMotion, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FALSE(j["presence"].contains("motion"))
+        << "no pushed frames → motion stays absent";
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, MotionStationaryDeviceScoresLow) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithMotion, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    // Phone on a table: no motion variance.
+    push_held_motion(h, 200, /* sigma = */ 0.0f);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    ASSERT_TRUE(j["presence"].contains("motion"));
+    EXPECT_FLOAT_EQ(j["presence"]["motion"].get<float>(), 0.0f);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, MotionHeldDeviceScoresHigher) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithMotion, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    // Held device: small per-axis variance simulating hand tremor.
+    push_held_motion(h, 200, /* sigma = */ 0.20f);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    ASSERT_TRUE(j["presence"].contains("motion"));
+    const float m = j["presence"]["motion"].get<float>();
+    EXPECT_GT(m, 0.4f) << "held-device sigma should land mid-to-high";
+    EXPECT_LE(m, 1.0f);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, MotionSummaryWeightsAudioSourceAndMotion) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithMotion, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    EXPECT_EQ(sentlog_set_audio_route(h, SENTLOG_AUDIO_ROUTE_BUILT_IN),
+              SENTLOG_OK);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    push_held_motion(h, 200, /* sigma = */ 0.20f);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    // built-in mic = audio_source 1.0 (weight 1.0);
+    // motion ~ 1.0 at sigma 0.20 (weight 0.7).
+    // summary = (1.0*1.0 + ~1.0*0.7) / (1.0+0.7) ≈ ~1.0.
+    const float summary = j["presence"]["summary"].get<float>();
+    EXPECT_GT(summary, 0.85f);
+    EXPECT_LE(summary, 1.0f);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, MotionPushOutsideCaptureFailsLifecycle) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithMotion, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    EXPECT_EQ(sentlog_push_motion_frame(h, 0, 0, 0, 0, 0, 0, 0),
+              SENTLOG_ERR_INVALID_STATE);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, MotionUseFlagOffSuppressesEvenWhenPushed) {
+    sentlog_status_t s;
+    // kValidConfig has use_motion_sensors == false (default).
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    push_held_motion(h, 200, /* sigma = */ 0.20f);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FALSE(j["presence"].contains("motion"))
+        << "use_motion_sensors=false → motion stays absent even if frames pushed";
     sentlog_destroy(h);
 }
 

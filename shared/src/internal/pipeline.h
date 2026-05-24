@@ -42,11 +42,17 @@ public:
     /// whisper.cpp). Otherwise the block is a placeholder with empty
     /// text, language "und", and confidence 0.0. target_match is
     /// always null at this chunk — direction scoring lands in 2d.
+    ///
+    /// If `pushed_motion` is non-empty and config.use_motion_sensors
+    /// is true, the pipeline computes presence.motion from the
+    /// buffered IMU series (Phase 3c). Otherwise presence.motion
+    /// stays null.
     static std::string run(const Config& config,
                            RingBuffer& ring,
                            const std::vector<PushedVadFrame>& pushed_vad,
                            const std::optional<PushedLiveness>& pushed_liveness,
                            const std::optional<PushedTranscript>& pushed_transcript,
+                           const std::vector<PushedMotionFrame>& pushed_motion,
                            sentlog_audio_route_t audio_route);
 };
 

@@ -63,6 +63,15 @@ struct PushedTranscript {
     std::vector<PushedWordTiming> word_timings;  // empty = unaligned
 };
 
+/// One accelerometer + gyroscope sample pushed by the platform-side
+/// motion sensor. Stored in order of arrival; the pipeline computes
+/// presence.motion from the buffered series at evaluate time.
+struct PushedMotionFrame {
+    int64_t timestamp_ns;
+    float ax, ay, az;
+    float gx, gy, gz;
+};
+
 // 30 seconds of 16 kHz audio = 480 000 samples. Round up to 524 288
 // (2^19) for the power-of-two ring buffer requirement.
 constexpr size_t kRingBufferCapacitySamples = 524288;
@@ -132,6 +141,16 @@ public:
     /// Snapshot the pushed transcript, or std::nullopt if none.
     std::optional<PushedTranscript> snapshot_transcript() const;
 
+    /// Push one motion sample from the platform-side IMU. Safe in
+    /// parallel with push_audio. Caps the buffer at the per-evaluate
+    /// limit so a runaway producer can't exhaust memory.
+    sentlog_status_t push_motion_frame(int64_t timestamp_ns,
+                                       float ax, float ay, float az,
+                                       float gx, float gy, float gz);
+
+    /// Snapshot the pushed motion frames for pipeline consumption.
+    std::vector<PushedMotionFrame> snapshot_motion_frames() const;
+
     /// Non-destructive copy of the audio ring buffer contents into
     /// `out`. Returns the number of samples written. Safe to call
     /// concurrently with push_audio.
@@ -192,6 +211,9 @@ private:
 
     mutable std::mutex transcript_mutex_;
     std::optional<PushedTranscript> pushed_transcript_;
+
+    mutable std::mutex motion_mutex_;
+    std::vector<PushedMotionFrame> pushed_motion_frames_;
 
     /// Default: UNKNOWN. The platform binding pushes the real route
     /// at startCapture; integrators that never push see audio_source
