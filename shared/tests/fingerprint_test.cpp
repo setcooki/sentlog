@@ -65,17 +65,25 @@ TEST(FingerprintTest, DifferentToneProducesDifferentFingerprint) {
 }
 
 TEST(FingerprintTest, SmallNoiseDoesNotFlipMostBits) {
-    // Original signal: short speech-like FM sweep
+    // Speech-like fixture: stack three harmonics with an amplitude
+    // envelope. Multiple Goertzel bands stay engaged across the
+    // whole clip, so the temporal-delta sign pattern is more stable
+    // than a single-tone sweep. Same shape used in pipeline_test.cpp.
     const float seconds = 4.0f;
     const size_t n = static_cast<size_t>(seconds * kSampleRateHz);
     std::vector<float> clean(n);
     for (size_t i = 0; i < n; ++i) {
         const float t = static_cast<float>(i) / static_cast<float>(kSampleRateHz);
-        clean[i] = 0.4f * std::sin(2.0f * kPi * (300.0f + 50.0f * t) * t);
+        const float env = std::sin(2.0f * kPi * 4.0f * t) * 0.5f + 0.5f;
+        clean[i] = 0.30f * env * (
+            std::sin(2.0f * kPi *  300.0f * t) +
+            std::sin(2.0f * kPi *  700.0f * t) * 0.6f +
+            std::sin(2.0f * kPi * 1500.0f * t) * 0.3f
+        );
     }
     std::vector<float> noisy = clean;
     std::mt19937 rng(0xC0FFEE);
-    // -52 dB additive (signal amp 0.4, noise sigma 0.001). Matches
+    // -52 dB additive (signal peak ~0.45, noise sigma 0.001). Matches
     // the "small re-encoding noise" claim in fingerprint.h's doc.
     std::normal_distribution<float> noise(0.0f, 0.001f);
     for (auto& s : noisy) s += noise(rng);
@@ -85,10 +93,10 @@ TEST(FingerprintTest, SmallNoiseDoesNotFlipMostBits) {
 
     ASSERT_EQ(fp_clean.size(), fp_noisy.size());
     const size_t diff = hamming_distance(fp_clean, fp_noisy);
-    // With very small noise, base64 strings should differ in well
-    // under half their characters — meaningfully better than a
-    // random fingerprint. Each base64 char encodes 6 bits, so a
-    // single byte difference often flips 1-2 chars.
+    // With very small noise on a multi-harmonic signal, base64 strings
+    // should differ in well under half their characters — meaningfully
+    // better than a random fingerprint. Each base64 char encodes 6
+    // bits, so a single byte difference often flips 1-2 chars.
     EXPECT_LT(diff, fp_clean.size() / 2u)
         << "small additive noise should preserve most of the fingerprint";
 }
