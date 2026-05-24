@@ -4,6 +4,8 @@
 
 using sentlog::internal::Config;
 using sentlog::internal::parse_config;
+using sentlog::internal::scoring_weight_keys;
+using sentlog::internal::weight_or_default;
 
 namespace {
 
