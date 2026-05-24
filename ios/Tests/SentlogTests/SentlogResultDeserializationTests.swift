@@ -24,7 +24,7 @@ final class SentlogResultDeserializationTests: XCTestCase {
           "engagement": {"score": 0.82, "voice_score": 0.82, "face_score": null, "model_status": "training"},
           "affect": null,
           "fingerprint": {"algo": "chromaprint-v2", "bytes": "Zm9vYmFyYmF6"},
-          "model_versions": {"liveness": "0.0.0-phase1", "asr": "0.0.0-phase1", "prosody": "0.0.0-phase1", "manifest": "0.0.0-phase1"},
+          "model_versions": {"liveness": "0.0.0-phase1", "asr": "0.0.0-phase1", "prosody": "0.0.0-phase1", "vad": "0.0.0-phase1", "manifest": "0.0.0-phase1"},
           "diagnostics": {"duration_ms": 8500, "audio_quality": "moderate"},
           "evidence_grade": "DeviceUnattested",
           "extensions": {}

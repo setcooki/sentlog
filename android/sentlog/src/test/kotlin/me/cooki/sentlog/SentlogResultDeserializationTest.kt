@@ -61,6 +61,7 @@ class SentlogResultDeserializationTest {
             "liveness": "0.0.0-phase1",
             "asr": "0.0.0-phase1",
             "prosody": "0.0.0-phase1",
+            "vad": "0.0.0-phase1",
             "manifest": "0.0.0-phase1"
           },
           "diagnostics": {
@@ -96,7 +97,7 @@ class SentlogResultDeserializationTest {
           "thresholds_met": false,
           "engagement": {"score": 0.5, "voice_score": 0.5, "model_status": "placeholder"},
           "fingerprint": {"algo": "chromaprint-v2", "bytes": ""},
-          "model_versions": {"liveness": "x", "asr": "x", "prosody": "x", "manifest": "x"},
+          "model_versions": {"liveness": "x", "asr": "x", "prosody": "x", "vad": "x", "manifest": "x"},
           "diagnostics": {"duration_ms": 0, "audio_quality": "quiet"},
           "evidence_grade": "DeviceUnattested",
           "extensions": {},
