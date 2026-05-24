@@ -10,7 +10,8 @@ std::string normalize_for_match(std::string_view s) {
     std::string out;
     out.reserve(s.size());
     bool last_was_space = true;  // skip leading whitespace
-    for (unsigned char c : s) {
+    for (char ch : s) {
+        const unsigned char c = static_cast<unsigned char>(ch);
         if (std::isspace(c)) {
             if (!last_was_space) {
                 out += ' ';

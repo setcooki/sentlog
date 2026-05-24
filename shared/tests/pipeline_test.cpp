@@ -630,6 +630,8 @@ TEST(PipelineTest, DirectionMatchesTargetPhraseExactly) {
     EXPECT_FLOAT_EQ(j["direction"].get<float>(),                  1.0f);
     EXPECT_TRUE(j["thresholds_met"].get<bool>())
         << "direction (1.0) >= threshold (0.85) should mark thresholds_met";
+
+    sentlog_destroy(h);
 }
 
 TEST(PipelineTest, DirectionPartialMatchScoresBelowOne) {
@@ -654,6 +656,8 @@ TEST(PipelineTest, DirectionPartialMatchScoresBelowOne) {
     EXPECT_GE(dir, 0.0f);
     EXPECT_FLOAT_EQ(j["transcript"]["target_match"].get<float>(), dir);
     EXPECT_FALSE(j["thresholds_met"].get<bool>());
+
+    sentlog_destroy(h);
 }
 
 TEST(PipelineTest, NoTargetPhraseLeavesMatchNullAndDirectionZero) {
@@ -678,6 +682,8 @@ TEST(PipelineTest, NoTargetPhraseLeavesMatchNullAndDirectionZero) {
     EXPECT_FLOAT_EQ(j["direction"].get<float>(), 0.0f);
     EXPECT_FALSE(j["thresholds_met"].get<bool>())
         << "no target_phrase configured → nothing to assert against";
+
+    sentlog_destroy(h);
 }
 
 TEST(PipelineTest, NoPushedTranscriptLeavesMatchNullEvenWithTargetPhrase) {
@@ -697,6 +703,8 @@ TEST(PipelineTest, NoPushedTranscriptLeavesMatchNullEvenWithTargetPhrase) {
     EXPECT_TRUE(j["transcript"]["target_match"].is_null());
     EXPECT_FLOAT_EQ(j["direction"].get<float>(), 0.0f);
     EXPECT_FALSE(j["thresholds_met"].get<bool>());
+
+    sentlog_destroy(h);
 }
 
 TEST(PipelineTest, ThresholdsMetHonorsConfiguredThreshold) {
@@ -722,6 +730,8 @@ TEST(PipelineTest, ThresholdsMetHonorsConfiguredThreshold) {
     EXPECT_GE(dir, 0.85f);
     EXPECT_LT(dir, 1.0f);
     EXPECT_TRUE(j["thresholds_met"].get<bool>());
+
+    sentlog_destroy(h);
 }
 
 TEST(PipelineTest, NoRoutePushedDefaultsToZero) {
