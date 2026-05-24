@@ -30,19 +30,16 @@ let package = Package(
             url: "https://github.com/microsoft/onnxruntime-swift-package-manager",
             exact: "1.17.0"
         ),
-        // whisper.cpp — Phase 2 ASR. Pinned by revision (the v1.7.1
-        // tag SHA) because the upstream Package.swift uses
-        // `.unsafeFlags(...)` for ggml's -O3 / -fno-objc-arc tuning,
-        // and SwiftPM forbids version-based pinning on packages with
-        // unsafe flags. .revision() is the supported escape hatch.
-        // Same tag SHA as the Android FetchContent pin in
-        // android/sentlog/src/main/cpp/CMakeLists.txt so both
-        // platforms run identical C++ / ggml code per ADR 0009.
-        // CPU-only — Core ML acceleration on iOS is a follow-up.
-        .package(
-            url: "https://github.com/ggerganov/whisper.cpp",
-            revision: "ebca09a3d1033417b0c630bbbe607b0f185b1488"  // v1.7.1
-        ),
+        // whisper.cpp — Phase 2 ASR. Vendored under
+        // External/whisper.cpp/ because the upstream v1.7.1
+        // Package.swift declares the Metal shader resource at the
+        // wrong path (Xcode 15 fails with undeclared
+        // SWIFTPM_MODULE_BUNDLE) and v1.7.5+ removed Package.swift
+        // entirely. The vendored manifest fixes the resource path
+        // and pins to the same v1.7.1 source the Android
+        // FetchContent points to. See
+        // External/whisper.cpp/VERSION.md for bump instructions.
+        .package(path: "External/whisper.cpp"),
     ],
     targets: [
         .target(
@@ -51,7 +48,7 @@ let package = Package(
                 .product(name: "SentlogCore", package: "shared"),
                 .product(name: "onnxruntime",
                          package: "onnxruntime-swift-package-manager"),
-                .product(name: "whisper", package: "whisper.cpp"),
+                .product(name: "whisper", package: "whisper"),
             ],
             path: "Sources/Sentlog",
             resources: [
