@@ -16,14 +16,10 @@ import whisper
 internal final class WhisperRunner {
 
     private let ctx: OpaquePointer
-    private let languageHint: String?
     private let wantWordTimings: Bool
 
-    private init(ctx: OpaquePointer,
-                 languageHint: String?,
-                 wantWordTimings: Bool) {
+    private init(ctx: OpaquePointer, wantWordTimings: Bool) {
         self.ctx             = ctx
-        self.languageHint    = languageHint
         self.wantWordTimings = wantWordTimings
     }
 
@@ -31,10 +27,7 @@ internal final class WhisperRunner {
 
     /// Try to load the bundled model. Returns nil if the resource is
     /// missing (degrades to no-op mode) or whisper.cpp init fails.
-    static func loadIfAvailable(
-        languageHint: String? = nil,
-        wantWordTimings: Bool = true
-    ) -> WhisperRunner? {
+    static func loadIfAvailable(wantWordTimings: Bool = true) -> WhisperRunner? {
         guard let url = Bundle.module.url(
             forResource: "whisper-tiny",
             withExtension: "bin"
@@ -50,14 +43,17 @@ internal final class WhisperRunner {
             return nil
         }
 
-        return WhisperRunner(ctx: ctx,
-                             languageHint: languageHint,
-                             wantWordTimings: wantWordTimings)
+        return WhisperRunner(ctx: ctx, wantWordTimings: wantWordTimings)
     }
 
     /// Run whisper.cpp on `audio` (16 kHz mono Float32, [-1, 1]).
     /// Returns a JSON string ready for `sentlog_push_transcript`, or
     /// `nil` if inference failed.
+    ///
+    /// Language is intentionally auto-detected (we don't bias whisper
+    /// with config.language_hint) — the pipeline does post-hoc
+    /// language gating against language_hint via the detected value
+    /// coming back in the JSON, so biasing would mask mismatches.
     func transcribe(_ audio: [Float]) -> String? {
         guard !audio.isEmpty else { return nil }
 
@@ -72,11 +68,7 @@ internal final class WhisperRunner {
         params.suppress_blank    = true
         params.token_timestamps  = wantWordTimings
         params.n_threads         = 4
-
-        // Pointers held alive for the duration of the whisper_full call.
-        let langCStr = languageHint.flatMap { strdup($0) }
-        defer { if let langCStr { free(langCStr) } }
-        params.language = UnsafePointer(langCStr)
+        params.language          = nil   // auto-detect; see doc above
 
         let rc = audio.withUnsafeBufferPointer { buf -> Int32 in
             whisper_full(ctx, params, buf.baseAddress, Int32(buf.count))

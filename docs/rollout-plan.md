@@ -81,8 +81,12 @@ architecture review triggered.
 - whisper.cpp tiny Q5_1 with variable-length (ACFT-style) encoder
   context — the largest single performance lever for mid-range
   Android.
-- iOS uses whisper.cpp Core ML build. Android uses LiteRT for the
-  prosody/affect heads; whisper.cpp itself uses ggml's CPU/Vulkan paths.
+- whisper.cpp ships CPU-only on both platforms in this phase. iOS
+  Core ML acceleration (whisper.cpp's encoder-as-CoreML path) and
+  Android Vulkan/GPU acceleration are tracked follow-ups that land
+  after the Phase 2 benchmark gate confirms the CPU baseline meets
+  thresholds. Android still uses LiteRT for prosody/affect heads in
+  later phases — that's unrelated to ASR.
 - `Transcript` populated in `SentlogResult` (text, language,
   confidence, word_timings). Direction scoring uses the same transcript.
 - Language gating: non-English clips return reduced confidence with a

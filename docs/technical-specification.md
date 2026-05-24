@@ -581,7 +581,7 @@ states this explicitly.
 
 - ASan + UBSan on every C++ PR. MSan on nightly.
 - Golden-fixture coverage (~50 clips) on every PR.
-- Narrow C ABI: ~16 functions, opaque handles only.
+- Narrow C ABI: under ~20 functions, opaque handles only.
 - ≥72h soak before each release.
 
 ### 5.7 Demographic bias acknowledgement

@@ -98,10 +98,12 @@ public data class AudioFingerprint(
 
 @Serializable
 public data class Diagnostics(
-    @SerialName("failure_reason") val failureReason: FailureReason? = null,
-    @SerialName("snr_db")         val snrDb:         Float? = null,
-    @SerialName("duration_ms")    val durationMs:    Int,
-    @SerialName("audio_quality")  val audioQuality:  AudioQuality,
+    @SerialName("failure_reason")     val failureReason:     FailureReason? = null,
+    @SerialName("snr_db")             val snrDb:             Float? = null,
+    @SerialName("duration_ms")        val durationMs:        Int,
+    @SerialName("audio_quality")      val audioQuality:      AudioQuality,
+    @SerialName("detected_language")  val detectedLanguage:  String? = null,
+    @SerialName("language_mismatch")  val languageMismatch:  Boolean? = null,
 )
 
 @Serializable

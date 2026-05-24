@@ -125,16 +125,20 @@ public struct AudioFingerprint: Codable, Sendable, Equatable {
 }
 
 public struct Diagnostics: Codable, Sendable, Equatable {
-    public let failureReason:  FailureReason?
-    public let snrDb:          Float?
-    public let durationMs:     Int
-    public let audioQuality:   AudioQuality
+    public let failureReason:     FailureReason?
+    public let snrDb:             Float?
+    public let durationMs:        Int
+    public let audioQuality:      AudioQuality
+    public let detectedLanguage:  String?
+    public let languageMismatch:  Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case failureReason = "failure_reason"
-        case snrDb         = "snr_db"
-        case durationMs    = "duration_ms"
-        case audioQuality  = "audio_quality"
+        case failureReason    = "failure_reason"
+        case snrDb            = "snr_db"
+        case durationMs       = "duration_ms"
+        case audioQuality     = "audio_quality"
+        case detectedLanguage = "detected_language"
+        case languageMismatch = "language_mismatch"
     }
 }
 

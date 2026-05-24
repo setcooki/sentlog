@@ -25,7 +25,6 @@ import java.io.FileOutputStream
  */
 internal class WhisperRunner private constructor(
     private val handle: Long,
-    private val languageHint: String?,
     private val wantWordTimings: Boolean,
 ) : AutoCloseable {
 
@@ -33,10 +32,15 @@ internal class WhisperRunner private constructor(
      * Run whisper.cpp on [audio] (16 kHz mono Float32, [-1, 1]).
      * Returns a JSON string ready for `sentlog_push_transcript`, or
      * `null` if inference failed.
+     *
+     * Language is intentionally auto-detected (we don't bias whisper
+     * with config.language_hint) — the pipeline does post-hoc
+     * language gating against language_hint via the detected value
+     * coming back in the JSON, so biasing would mask mismatches.
      */
     fun transcribe(audio: FloatArray): String? {
         if (audio.isEmpty()) return null
-        return nativeTranscribe(handle, audio, languageHint, wantWordTimings)
+        return nativeTranscribe(handle, audio, /* languageHint = */ null, wantWordTimings)
     }
 
     override fun close() {
@@ -56,14 +60,13 @@ internal class WhisperRunner private constructor(
          */
         fun loadIfAvailable(
             ctx: Context,
-            languageHint: String? = null,
             wantWordTimings: Boolean = true,
         ): WhisperRunner? {
             NativeBridge.ensureLoaded()
             val modelPath = stageAssetToCache(ctx) ?: return null
             val handle = nativeInit(modelPath.absolutePath)
             if (handle == 0L) return null
-            return WhisperRunner(handle, languageHint, wantWordTimings)
+            return WhisperRunner(handle, wantWordTimings)
         }
 
         private fun stageAssetToCache(ctx: Context): File? {
