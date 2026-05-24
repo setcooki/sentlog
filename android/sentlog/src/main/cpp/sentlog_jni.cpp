@@ -257,6 +257,19 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativePushTranscript(
 }
 
 JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativePushMotionFrame(
+    JNIEnv* /*env*/, jclass /*clazz*/, jlong handle,
+    jlong timestamp_ns,
+    jfloat ax, jfloat ay, jfloat az,
+    jfloat gx, jfloat gy, jfloat gz) {
+    return static_cast<jint>(sentlog_push_motion_frame(
+        native_from_jlong(handle),
+        static_cast<int64_t>(timestamp_ns),
+        static_cast<float>(ax), static_cast<float>(ay), static_cast<float>(az),
+        static_cast<float>(gx), static_cast<float>(gy), static_cast<float>(gz)));
+}
+
+JNIEXPORT jint JNICALL
 Java_me_cooki_sentlog_internal_NativeBridge_nativeSetAudioRoute(
     JNIEnv* /*env*/, jclass /*clazz*/, jlong handle, jint route) {
     return static_cast<jint>(sentlog_set_audio_route(

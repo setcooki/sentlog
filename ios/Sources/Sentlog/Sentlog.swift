@@ -27,6 +27,8 @@ public enum Sentlog {
     private static var handle:    OpaquePointer?
     private static var audio:     AudioCapture?
     private static var vadStream: SileroVadStream?
+    private static var motion:    MotionCapture?
+    private static var currentConfig: SentlogConfig?
     private static var telemetry: NativeBridge.TelemetryBox?
     private static let stateLock = NSLock()
 
@@ -92,6 +94,7 @@ public enum Sentlog {
             throw SentlogError(status: status, context: "initialize")
         }
         handle = h
+        currentConfig = config
     }
 
     /// Start audio capture. Throws if not initialised, if lifecycle
@@ -130,6 +133,18 @@ public enum Sentlog {
         )
         try cap.start()
         audio = cap
+
+        // Phase 3c: motion-coherence. Opt-in via config. CoreMotion
+        // doesn't require a runtime permission for the IMU on iOS;
+        // if the platform lacks accelerometer (macOS) MotionCapture
+        // silently no-ops and the pipeline emits no presence.motion.
+        if currentConfig?.useMotionSensors == true {
+            let m = MotionCapture { tsNs, ax, ay, az, gx, gy, gz in
+                sentlog_push_motion_frame(h, tsNs, ax, ay, az, gx, gy, gz)
+            }
+            m.start()
+            motion = m
+        }
     }
 
     /// Try to load the bundled Silero VAD model. Returns nil if the
@@ -222,6 +237,8 @@ public enum Sentlog {
                 audio?.stop()
                 audio = nil
                 vadStream = nil
+                motion?.stop()
+                motion = nil
                 h = try requireHandleLocked()
             } catch {
                 cont.resume(throwing: error)
@@ -271,6 +288,8 @@ public enum Sentlog {
         audio?.stop()
         audio = nil
         vadStream = nil
+        motion?.stop()
+        motion = nil
         if let h = handle {
             sentlog_cancel(h)
         }
@@ -345,11 +364,14 @@ public enum Sentlog {
         audio?.stop()
         audio = nil
         vadStream = nil
+        motion?.stop()
+        motion = nil
         if let h = handle {
             sentlog_destroy(h)
             handle = nil
         }
         telemetry = nil
+        currentConfig = nil
     }
 
     private static func requireHandleLocked() throws -> OpaquePointer {

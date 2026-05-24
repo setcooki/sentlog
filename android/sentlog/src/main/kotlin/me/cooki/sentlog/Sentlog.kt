@@ -8,6 +8,7 @@ import kotlinx.serialization.json.Json
 import me.cooki.sentlog.internal.AasistLivenessRunner
 import me.cooki.sentlog.internal.AudioCapture
 import me.cooki.sentlog.internal.AudioRouteDetector
+import me.cooki.sentlog.internal.MotionCapture
 import me.cooki.sentlog.internal.NativeBridge
 import me.cooki.sentlog.internal.ResultCallback
 import me.cooki.sentlog.internal.SileroVadStream
@@ -51,6 +52,8 @@ public object Sentlog {
     private var handle: Long = 0L
     private var audio: AudioCapture? = null
     private var vadStream: SileroVadStream? = null
+    private var motion: MotionCapture? = null
+    private var currentConfig: SentlogConfig? = null
     private var sileroModelBytes: ByteArray? = null
     private var aasistModelBytes: ByteArray? = null
     private var appContext: Context? = null
@@ -128,6 +131,7 @@ public object Sentlog {
             )
         }
         handle = h
+        currentConfig = config
     }
 
     /**
@@ -177,6 +181,20 @@ public object Sentlog {
                 }
             },
         ).also { it.start() }
+
+        // Phase 3c: motion-coherence. Opt-in via config —
+        // use_motion_sensors must be true AND the integrator must
+        // have ensured no extra runtime permission is needed (none
+        // are required on Android for accel/gyro). If the device
+        // doesn't expose accelerometer or gyroscope, MotionCapture
+        // silently no-ops; the pipeline emits no presence.motion.
+        appContext?.let { ctx ->
+            if (currentConfig?.useMotionSensors == true) {
+                motion = MotionCapture(ctx) { ts, ax, ay, az, gx, gy, gz ->
+                    NativeBridge.nativePushMotionFrame(h, ts, ax, ay, az, gx, gy, gz)
+                }.also { it.start() }
+            }
+        }
     }
 
     /**
@@ -199,6 +217,8 @@ public object Sentlog {
             audio = null
             vadStream?.close()
             vadStream = null
+            motion?.stop()
+            motion = null
 
             runAasistAndPushLiveness(h)
             runWhisperAndPushTranscript(h)
@@ -235,6 +255,8 @@ public object Sentlog {
         audio = null
         vadStream?.close()
         vadStream = null
+        motion?.stop()
+        motion = null
         NativeBridge.nativeCancel(handle)
     }
 
@@ -313,11 +335,14 @@ public object Sentlog {
         audio = null
         vadStream?.close()
         vadStream = null
+        motion?.stop()
+        motion = null
         if (handle != 0L) {
             NativeBridge.nativeDestroy(handle)
             handle = 0L
         }
         userTelemetry = null
+        currentConfig = null
     }
 
     private fun requireHandle(): Long {

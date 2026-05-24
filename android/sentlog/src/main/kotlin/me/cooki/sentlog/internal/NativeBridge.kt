@@ -50,6 +50,12 @@ internal object NativeBridge {
     @JvmStatic external fun nativePushVadFrame(handle: Long, startSample: Long, numSamples: Int, probability: Float): Int
     @JvmStatic external fun nativePushLivenessResult(handle: Long, score: Float, replayRisk: Float, syntheticRisk: Float): Int
     @JvmStatic external fun nativePushTranscript(handle: Long, transcriptJson: String): Int
+    @JvmStatic external fun nativePushMotionFrame(
+        handle: Long,
+        timestampNs: Long,
+        ax: Float, ay: Float, az: Float,
+        gx: Float, gy: Float, gz: Float,
+    ): Int
     @JvmStatic external fun nativeSetAudioRoute(handle: Long, route: Int): Int
     /** Non-destructive snapshot. Returns the number of samples written into [out]. */
     @JvmStatic external fun nativeSnapshotAudio(handle: Long, out: FloatArray): Int
