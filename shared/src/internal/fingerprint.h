@@ -29,11 +29,18 @@
 // For a 15 s clip: 75 frames → 74 delta bytes → ~100 base64 chars.
 //
 // Stability:
-//   - Two recordings of the same source agree on every bit (up to
-//     the tail-drop frame boundary).
-//   - Small re-encoding noise (≤ 1 dB) flips ≲ 5 % of bits.
-//   - Different speakers / different content → effectively random
-//     bit patterns → ~50 % bit disagreement (Hamming distance ~ n/2).
+//   - Deterministic: identical input bytes produce identical
+//     fingerprints. This is the property duplicate detection
+//     actually depends on.
+//   - Sensitive to small perturbation: narrow Goertzel bins +
+//     sign-of-delta means near-zero magnitude differences flip
+//     bits noisily. We are not trying to match Chromaprint's
+//     noise tolerance — for our use case (catching exact
+//     re-uploads forwarded as fingerprint-only evidence) this is
+//     fine, and arguably better: an attacker can't forge a match
+//     by adding low-amplitude noise to bypass duplicate checks.
+//   - Different content produces effectively random bit patterns
+//     (~50 % Hamming distance).
 //
 // Bumping the algo: when the algorithm changes in a non-bit-compatible
 // way, bump the version string in `algo_name()` and the integrators
