@@ -12,17 +12,24 @@
 //   Package.swift entirely in v1.7.5+ (switched to systemLibrary
 //   mode), so there's no upstream tag to point at that works.
 //
-//   This manifest mirrors the upstream sources/headers list but fixes
-//   the resource path. Same byte-for-byte v1.7.1 source as the
-//   Android FetchContent pin in android/sentlog/src/main/cpp/
-//   CMakeLists.txt, so both platforms run identical C++ / ggml code
-//   per ADR 0009.
+//   Same byte-for-byte v1.7.1 source as the Android FetchContent pin
+//   in android/sentlog/src/main/cpp/CMakeLists.txt, so both
+//   platforms run identical C++ / ggml code per ADR 0009.
 //
-// Bumping the pin:
-//   Re-run the equivalent of
-//     curl -sL https://github.com/ggerganov/whisper.cpp/archive/refs/tags/<tag>.tar.gz \
-//          | tar xz
-//   and copy the same file set (see the sources/headers lists below).
+// Two-target layout — required, not an aesthetic choice:
+//   When a SwiftPM target declares `resources`, SwiftPM auto-
+//   generates `resource_bundle_accessor.h` that `#import`s
+//   <Foundation/Foundation.h>, and force-includes that file into
+//   every source. That works for the .m (Obj-C) file but breaks
+//   the .c / .cpp files because Foundation requires Obj-C mode.
+//   Splitting the Obj-C ggml-metal.m + its shader resource into
+//   its own target isolates the Foundation include.
+//
+//   The `whisper_metal` target carries the Metal backend + shader;
+//   the `whisper` target carries the pure-C / C++ surface and
+//   depends on `whisper_metal`. The `whisper` library product
+//   exposes both via its dependency, so consumers `import whisper`
+//   and get the full backend.
 
 import PackageDescription
 
@@ -33,15 +40,64 @@ let package = Package(
         .macOS(.v13),
     ],
     products: [
-        .library(name: "whisper", targets: ["whisper"]),
+        .library(name: "whisper", targets: ["whisper", "whisper_metal"]),
     ],
     targets: [
+        // Obj-C Metal backend — owns the shader resource. Isolated so
+        // its SwiftPM-generated Foundation include doesn't break the
+        // pure-C / C++ sources in the sibling target.
         .target(
-            name: "whisper",
+            name: "whisper_metal",
             path: ".",
             exclude: [
                 "LICENSE",
                 "Package.swift",
+                "VERSION.md",
+                "include",
+                "src",
+                "ggml/src/ggml.c",
+                "ggml/src/ggml-aarch64.c",
+                "ggml/src/ggml-aarch64.h",
+                "ggml/src/ggml-alloc.c",
+                "ggml/src/ggml-backend.cpp",
+                "ggml/src/ggml-backend-impl.h",
+                "ggml/src/ggml-quants.c",
+                "ggml/src/ggml-quants.h",
+                "ggml/src/ggml-common.h",
+                "ggml/src/ggml-cpu-impl.h",
+                "ggml/src/ggml-impl.h",
+            ],
+            sources: [
+                "ggml/src/ggml-metal.m",
+            ],
+            resources: [
+                .process("ggml/src/ggml-metal.metal"),
+            ],
+            publicHeadersPath: "ggml/include",
+            cSettings: [
+                .headerSearchPath("ggml/src"),
+                .define("GGML_USE_METAL"),
+                .define("NDEBUG"),
+            ],
+            linkerSettings: [
+                .linkedFramework("Metal"),
+                .linkedFramework("MetalKit"),
+                .linkedFramework("Foundation"),
+            ]
+        ),
+        // Pure-C / C++ ggml + whisper surface. Depends on the Metal
+        // target so consumers `import whisper` get the full library.
+        .target(
+            name: "whisper",
+            dependencies: ["whisper_metal"],
+            path: ".",
+            exclude: [
+                "LICENSE",
+                "Package.swift",
+                "VERSION.md",
+                "ggml/src/ggml-metal.m",
+                "ggml/src/ggml-metal.metal",
+                "ggml/include/ggml-metal.h",
             ],
             sources: [
                 "src/whisper.cpp",
@@ -50,14 +106,6 @@ let package = Package(
                 "ggml/src/ggml-alloc.c",
                 "ggml/src/ggml-backend.cpp",
                 "ggml/src/ggml-quants.c",
-                "ggml/src/ggml-metal.m",
-            ],
-            // The Metal shader lives next to ggml-metal.m. Declared
-            // as a processed resource so SwiftPM bundles it and
-            // defines SWIFTPM_MODULE_BUNDLE for ggml-metal.m's
-            // shader-loading path.
-            resources: [
-                .process("ggml/src/ggml-metal.metal"),
             ],
             publicHeadersPath: "include",
             cSettings: [
@@ -67,10 +115,6 @@ let package = Package(
                 .define("GGML_USE_ACCELERATE"),
                 .define("GGML_USE_METAL"),
                 .define("NDEBUG"),
-                // Upstream uses unsafeFlags for -O3 and -fno-objc-arc;
-                // those settings are taken on by SwiftPM in release
-                // mode by default (O for optimizations, MRC for the
-                // .m file because we don't enable ARC project-wide).
             ],
             cxxSettings: [
                 .headerSearchPath("ggml/include"),
@@ -82,11 +126,8 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("Accelerate"),
-                .linkedFramework("Metal"),
-                .linkedFramework("MetalKit"),
-                .linkedFramework("Foundation"),
             ]
-        )
+        ),
     ],
     cxxLanguageStandard: .cxx17
 )
