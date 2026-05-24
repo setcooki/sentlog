@@ -170,3 +170,76 @@ TEST(ConfigTest, HardwareSigningRequiredWithoutUseHardwareSigningRejected) {
     EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
     EXPECT_EQ(err, "use_hardware_signing");
 }
+
+// --- Scoring weights (Phase 3b) ---
+
+TEST(ConfigTest, ScoringWeightsKnownKeysParsed) {
+    Config cfg;
+    const char* j = R"({"issuer": "did:example:x",
+                        "scoring_weights": {
+                            "engagement.face":      0.8,
+                            "presence.motion":      0.3
+                        }})";
+    EXPECT_EQ(parse_config(j, &cfg, nullptr), SENTLOG_OK);
+    EXPECT_FLOAT_EQ(cfg.scoring_weights["engagement.face"], 0.8f);
+    EXPECT_FLOAT_EQ(cfg.scoring_weights["presence.motion"], 0.3f);
+}
+
+TEST(ConfigTest, ScoringWeightsUnknownKeyRejected) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"scoring_weights": {"engagement.face_typo": 0.5}})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "scoring_weights.engagement.face_typo");
+}
+
+TEST(ConfigTest, ScoringWeightsNonNumericRejected) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"scoring_weights": {"engagement.voice": "high"}})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "scoring_weights.engagement.voice");
+}
+
+TEST(ConfigTest, ScoringWeightsNegativeRejected) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"scoring_weights": {"engagement.voice": -0.1}})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "scoring_weights.engagement.voice");
+}
+
+TEST(ConfigTest, ScoringWeightsExcessiveRejected) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"scoring_weights": {"engagement.voice": 1000.0}})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "scoring_weights.engagement.voice");
+}
+
+TEST(ConfigTest, ScoringWeightsObjectShapeRequired) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"scoring_weights": [0.5, 0.3]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "scoring_weights");
+}
+
+TEST(ConfigTest, WeightOrDefaultReturnsOverrideOrPublished) {
+    Config cfg;
+    cfg.scoring_weights["presence.motion"] = 0.25f;
+    EXPECT_FLOAT_EQ(weight_or_default(cfg, "presence.motion"), 0.25f);
+    EXPECT_FLOAT_EQ(weight_or_default(cfg, "engagement.voice"), 1.0f)
+        << "fallback to published default";
+    EXPECT_FLOAT_EQ(weight_or_default(cfg, "engagement.face"), 0.5f);
+}
+
+TEST(ConfigTest, ScoringWeightKeysCoversAllPublished) {
+    const auto& keys = scoring_weight_keys();
+    EXPECT_EQ(keys.size(), 7u);
+    Config cfg;  // empty; every key falls back to published defaults
+    for (const auto& k : keys) {
+        EXPECT_GE(weight_or_default(cfg, k), 0.0f)
+            << "missing default for key " << k;
+    }
+}

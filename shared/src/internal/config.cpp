@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <set>
 
 namespace sentlog::internal {
@@ -223,6 +224,43 @@ sentlog_status_t parse_config(const std::string& json_text,
         }
     }
 
+    if (j.contains("scoring_weights")) {
+        const auto& sw = j["scoring_weights"];
+        if (!sw.is_object()) {
+            if (error_field != nullptr) *error_field = "scoring_weights";
+            return SENTLOG_ERR_INVALID_CONFIG;
+        }
+        const auto& allowed = scoring_weight_keys();
+        for (auto it = sw.begin(); it != sw.end(); ++it) {
+            const std::string& key = it.key();
+            // Named-key validation per decision row 1.21 in the spec —
+            // unrecognised keys are rejected so typos surface at init
+            // rather than silently no-op'ing in scoring.
+            if (std::find(allowed.begin(), allowed.end(), key) == allowed.end()) {
+                if (error_field != nullptr) {
+                    *error_field = "scoring_weights." + key;
+                }
+                return SENTLOG_ERR_INVALID_CONFIG;
+            }
+            if (!it.value().is_number()) {
+                if (error_field != nullptr) {
+                    *error_field = "scoring_weights." + key;
+                }
+                return SENTLOG_ERR_INVALID_CONFIG;
+            }
+            const float v = it.value().get<float>();
+            if (!(v >= 0.0f) || v > 10.0f) {
+                // Weights must be non-negative; cap at 10 to catch
+                // accidental ×100 typos.
+                if (error_field != nullptr) {
+                    *error_field = "scoring_weights." + key;
+                }
+                return SENTLOG_ERR_INVALID_CONFIG;
+            }
+            cfg.scoring_weights.emplace(key, v);
+        }
+    }
+
     if (j.contains("forwarders")) {
         if (!j["forwarders"].is_array()) {
             if (error_field != nullptr) *error_field = "forwarders";
@@ -294,7 +332,80 @@ std::string config_to_json(const Config& cfg) {
         fj["sink"]        = json::parse(fw.sink_json);
         j["forwarders"].push_back(std::move(fj));
     }
+    if (!cfg.scoring_weights.empty()) {
+        json sw = json::object();
+        for (const auto& [k, v] : cfg.scoring_weights) sw[k] = v;
+        j["scoring_weights"] = sw;
+    }
     return j.dump();
+}
+
+// Published default scoring weights. Sources for the choices:
+//
+//   liveness.replay / liveness.synthetic
+//     Both 1.0 — AASIST-L's per-attack-class probabilities are
+//     calibrated and surface as-is in the result. A future split
+//     between replay and synthetic risk would land here.
+//
+//   engagement.voice
+//     1.0 — the only signal source today (Phase 3+ adds prosody
+//     + whisper-encoder probe; weight stays 1.0 because they're
+//     ensembled inside the voice_score, not here).
+//
+//   engagement.face
+//     0.5 — when video affect ships in Phase 5, weight it at half
+//     voice initially. Face is a real signal but noisier across
+//     lighting / camera angle than voice. Integrators with reliable
+//     capture environments can crank to 1.0.
+//
+//   presence.audio_source
+//     1.0 — the most direct signal (microphone vs USB vs loopback).
+//
+//   presence.motion
+//     0.7 — motion coherence (Phase 3c) is informative but more
+//     easily spoofed (record-and-shake) than the audio route, so
+//     it gets less weight by default.
+//
+//   presence.integrity
+//     1.0 — Play Integrity / DeviceCheck attestations, when
+//     present, are very high-signal. Phase 7+.
+//
+// If you bump any of these, also update docs/scoring-weights.md so
+// the published table doesn't drift from the implementation.
+namespace {
+const std::map<std::string, float>& kPublishedWeights() {
+    static const std::map<std::string, float> kv = {
+        {"liveness.replay",         1.0f},
+        {"liveness.synthetic",      1.0f},
+        {"engagement.voice",        1.0f},
+        {"engagement.face",         0.5f},
+        {"presence.audio_source",   1.0f},
+        {"presence.motion",         0.7f},
+        {"presence.integrity",      1.0f},
+    };
+    return kv;
+}
+}  // namespace
+
+const std::vector<std::string>& scoring_weight_keys() {
+    static const std::vector<std::string> keys = [] {
+        std::vector<std::string> v;
+        v.reserve(kPublishedWeights().size());
+        for (const auto& [k, _] : kPublishedWeights()) v.push_back(k);
+        return v;
+    }();
+    return keys;
+}
+
+float weight_or_default(const Config& cfg, const std::string& key) {
+    const auto it = cfg.scoring_weights.find(key);
+    if (it != cfg.scoring_weights.end()) return it->second;
+    const auto& defaults = kPublishedWeights();
+    const auto dit = defaults.find(key);
+    // Internal callers must use a known key. We don't crash in
+    // release — bad scoring weight on an unknown key returns 0 which
+    // visibly excludes the term from the ensemble.
+    return (dit != defaults.end()) ? dit->second : 0.0f;
 }
 
 }  // namespace sentlog::internal

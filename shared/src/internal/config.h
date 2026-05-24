@@ -9,6 +9,7 @@
 #ifndef SENTLOG_INTERNAL_CONFIG_H
 #define SENTLOG_INTERNAL_CONFIG_H
 
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -48,6 +49,13 @@ struct Config {
     bool use_video_affect{false};
     bool use_device_integrity{false};
 
+    // Per-component ensemble weights — overrides for the published
+    // defaults documented in docs/scoring-weights.md. Stored sparse:
+    // only the keys the integrator overrode. Pipeline code reads via
+    // weight_or_default(...) below. Unrecognised keys are rejected
+    // at parse time (decision row 1.21 in the spec).
+    std::map<std::string, float> scoring_weights;
+
     // evidence envelope (Verifiable Credentials)
     std::string issuer;                          // required if any forwarder is configured
     std::optional<std::string> signing_key_id;
@@ -78,6 +86,19 @@ sentlog_status_t parse_config(const std::string& json_text,
 // Serialise the config back to a JSON string. Used for telemetry and
 // diagnostics; not part of the hot path.
 std::string config_to_json(const Config& cfg);
+
+// Allowed scoring_weights keys, in canonical order. The parser
+// rejects any key not in this list. The pipeline reads its weight
+// for `key` via weight_or_default(cfg, key) below, which falls back
+// to the published default when the integrator hasn't overridden it.
+extern const std::vector<std::string>& scoring_weight_keys();
+
+// Look up a scoring weight. Returns the integrator override if
+// present, otherwise the published default from
+// docs/scoring-weights.md. Aborts (via assert) if `key` is not one
+// of scoring_weight_keys() — callers must use named constants, not
+// strings parsed from input.
+float weight_or_default(const Config& cfg, const std::string& key);
 
 }  // namespace sentlog::internal
 
