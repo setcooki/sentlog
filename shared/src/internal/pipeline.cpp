@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "internal/ring_buffer.h"
+#include "internal/text_match.h"
 #include "internal/vad/vad.h"
 
 namespace sentlog::internal {
@@ -150,8 +151,12 @@ std::string Pipeline::run(const Config& config,
 
     // 4. Transcript — pushed by platform-side whisper.cpp if present
     //    (chunks 2b/2c); otherwise schema-correct placeholder so the
-    //    result shape stays stable. target_match stays null at this
-    //    chunk — direction scoring lands in 2d.
+    //    result shape stays stable.
+    //
+    //    target_match (chunk 2d) is computed here when both a pushed
+    //    transcript and config.target_phrase are present. Otherwise
+    //    it stays null. See text_match.{h,cpp} for the comparison.
+    std::optional<float> target_match_score;
     {
         json t;
         if (pushed_transcript.has_value()) {
@@ -169,12 +174,20 @@ std::string Pipeline::run(const Config& config,
                 }
                 t["word_timings"] = wts;
             }
+            if (config.target_phrase.has_value()) {
+                target_match_score = target_match_ratio(
+                    pushed_transcript->text, *config.target_phrase);
+            }
         } else {
             t["text"]       = "";
             t["language"]   = config.language_hint;
             t["confidence"] = 0.0f;
         }
-        t["target_match"] = nullptr;
+        if (target_match_score.has_value()) {
+            t["target_match"] = *target_match_score;
+        } else {
+            t["target_match"] = nullptr;
+        }
         result["transcript"] = t;
     }
 
@@ -210,9 +223,23 @@ std::string Pipeline::run(const Config& config,
         result["presence"] = p;
     }
 
-    result["direction"]      = 0.0f;
+    // direction — same value as transcript.target_match when the
+    // comparison ran (chunk 2d). When no target_phrase is configured
+    // or no transcript was pushed, direction stays at 0.0 because the
+    // SDK has nothing to score against. Per spec §5.5 this is a raw
+    // [0,1] score; thresholds_met below applies the config threshold.
+    const float direction = target_match_score.value_or(0.0f);
+    result["direction"]      = direction;
     result["confidence"]     = vad_report.has_speech() ? 0.6f : 0.0f;
-    result["thresholds_met"] = false;  // pure scores aren't trained yet — see model_status
+    // thresholds_met is the only place threshold values are consumed
+    // per the spec. Phase 2 reads direction_threshold; the rest of
+    // the per-metric thresholds light up as their scores land
+    // (liveness in Phase 3+, engagement when trained). For now: only
+    // assertable when target_match was actually computed; otherwise
+    // nothing to gate on.
+    const bool thresholds_met = target_match_score.has_value()
+        && direction >= config.direction_threshold;
+    result["thresholds_met"] = thresholds_met;
 
     // 7. Engagement — placeholder model. model_status = "placeholder"
     //    signals integrators not to surface this until it's "trained".

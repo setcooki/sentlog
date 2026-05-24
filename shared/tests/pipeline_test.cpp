@@ -600,6 +600,130 @@ TEST(PipelineTest, PushTranscriptOutsideCaptureFailsLifecycle) {
     sentlog_destroy(h);
 }
 
+// --- Direction scoring against target_phrase (chunk 2d) ---
+
+namespace {
+const char* kConfigWithTargetPhrase =
+    R"({"issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "target_phrase": "please confirm your name",
+        "direction_threshold": 0.85})";
+}  // namespace
+
+TEST(PipelineTest, DirectionMatchesTargetPhraseExactly) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithTargetPhrase, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    const char* t = R"({"text":"Please confirm your name.","language":"en","confidence":0.9})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_FLOAT_EQ(j["transcript"]["target_match"].get<float>(), 1.0f);
+    EXPECT_FLOAT_EQ(j["direction"].get<float>(),                  1.0f);
+    EXPECT_TRUE(j["thresholds_met"].get<bool>())
+        << "direction (1.0) >= threshold (0.85) should mark thresholds_met";
+}
+
+TEST(PipelineTest, DirectionPartialMatchScoresBelowOne) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithTargetPhrase, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    // Off-phrase but related — should land mid-range, well below 0.85.
+    const char* t = R"({"text":"the weather is nice today","language":"en","confidence":0.9})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    const float dir = j["direction"].get<float>();
+    EXPECT_LT(dir, 0.5f);
+    EXPECT_GE(dir, 0.0f);
+    EXPECT_FLOAT_EQ(j["transcript"]["target_match"].get<float>(), dir);
+    EXPECT_FALSE(j["thresholds_met"].get<bool>());
+}
+
+TEST(PipelineTest, NoTargetPhraseLeavesMatchNullAndDirectionZero) {
+    // kValidConfig has no target_phrase. The transcript is pushed,
+    // but there's nothing to compare against.
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    const char* t = R"({"text":"some words","language":"en","confidence":0.9})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_TRUE(j["transcript"]["target_match"].is_null());
+    EXPECT_FLOAT_EQ(j["direction"].get<float>(), 0.0f);
+    EXPECT_FALSE(j["thresholds_met"].get<bool>())
+        << "no target_phrase configured → nothing to assert against";
+}
+
+TEST(PipelineTest, NoPushedTranscriptLeavesMatchNullEvenWithTargetPhrase) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithTargetPhrase, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    // No push_transcript call.
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    EXPECT_TRUE(j["transcript"]["target_match"].is_null());
+    EXPECT_FLOAT_EQ(j["direction"].get<float>(), 0.0f);
+    EXPECT_FALSE(j["thresholds_met"].get<bool>());
+}
+
+TEST(PipelineTest, ThresholdsMetHonorsConfiguredThreshold) {
+    // Same fixture as the exact-match test but at the boundary —
+    // a near-miss that lands above the threshold should still pass.
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithTargetPhrase, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    // Small typo — should still be above 0.85.
+    const char* t = R"({"text":"please confirm your nme","language":"en","confidence":0.9})";
+    ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+
+    const float dir = j["direction"].get<float>();
+    EXPECT_GE(dir, 0.85f);
+    EXPECT_LT(dir, 1.0f);
+    EXPECT_TRUE(j["thresholds_met"].get<bool>());
+}
+
 TEST(PipelineTest, NoRoutePushedDefaultsToZero) {
     sentlog_status_t s;
     auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);

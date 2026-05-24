@@ -38,6 +38,7 @@ let package = Package(
                 "src/internal/state.cpp",
                 "src/internal/config.cpp",
                 "src/internal/pipeline.cpp",
+                "src/internal/text_match.cpp",
                 "src/internal/vad/energy_vad.cpp",
             ],
             publicHeadersPath: "include",

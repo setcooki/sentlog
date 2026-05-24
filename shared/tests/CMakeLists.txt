@@ -19,6 +19,7 @@ add_executable(sentlog_tests
     c_api_test.cpp
     vad_test.cpp
     pipeline_test.cpp
+    text_match_test.cpp
 )
 target_link_libraries(sentlog_tests
     PRIVATE
