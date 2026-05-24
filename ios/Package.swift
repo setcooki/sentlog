@@ -30,6 +30,15 @@ let package = Package(
             url: "https://github.com/microsoft/onnxruntime-swift-package-manager",
             exact: "1.17.0"
         ),
+        // whisper.cpp — Phase 2 ASR. Pinned to v1.7.1, same tag as
+        // the Android FetchContent in android/sentlog/src/main/cpp/
+        // CMakeLists.txt, so the C++/ggml code is identical on both
+        // platforms. CPU-only — Core ML acceleration on iOS is a
+        // follow-up that needs a quantised CoreML companion model.
+        .package(
+            url: "https://github.com/ggerganov/whisper.cpp",
+            exact: "1.7.1"
+        ),
     ],
     targets: [
         .target(
@@ -38,6 +47,7 @@ let package = Package(
                 .product(name: "SentlogCore", package: "shared"),
                 .product(name: "onnxruntime",
                          package: "onnxruntime-swift-package-manager"),
+                .product(name: "whisper", package: "whisper.cpp"),
             ],
             path: "Sources/Sentlog",
             resources: [
@@ -53,6 +63,10 @@ let package = Package(
                 // safe — but the model bundle is inert on iOS until
                 // both lines land together.
                 // .copy("Resources/aasist_l.onnx"),
+                // whisper.cpp model — same operator workflow as
+                // AASIST-L. tools/whisper-model/download-tiny.sh
+                // stages it; uncomment when the file is committed.
+                // .copy("Resources/whisper-tiny.bin"),
             ]
         ),
         .testTarget(

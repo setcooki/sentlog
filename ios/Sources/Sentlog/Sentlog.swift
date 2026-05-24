@@ -178,6 +178,30 @@ public enum Sentlog {
         }
     }
 
+    /// Run whisper.cpp over the captured audio if the model is
+    /// bundled. Safe to call always — when the resource is missing
+    /// this is a no-op and the C++ pipeline emits the placeholder
+    /// transcript.
+    private static func runWhisperAndPushTranscript(handle: OpaquePointer) {
+        // Capacity matches the C++ ring buffer (~30 s @ 16 kHz).
+        let capacity = whisperMaxSamples
+        var buf = [Float](repeating: 0, count: capacity)
+        var written: size_t = 0
+        let snapshotStatus = buf.withUnsafeMutableBufferPointer { ptr -> sentlog_status_t in
+            sentlog_snapshot_audio(handle, ptr.baseAddress, capacity, &written)
+        }
+        guard snapshotStatus == SENTLOG_OK, written > 0 else { return }
+        let audioSlice = written == capacity ? buf : Array(buf.prefix(Int(written)))
+
+        guard let runner = WhisperRunner.loadIfAvailable() else { return }
+        guard let json = runner.transcribe(audioSlice) else { return }
+        _ = json.withCString { ptr in
+            sentlog_push_transcript(handle, ptr)
+        }
+    }
+
+    private static let whisperMaxSamples: Int = 16_000 * 30
+
     /// Stop capture and run the evaluation pipeline. Returns when the
     /// pipeline completes.
     public static func evaluate() async throws -> SentlogResult {
@@ -190,11 +214,14 @@ public enum Sentlog {
             return try requireHandleLocked()
         }()
 
-        // AASIST-L liveness inference if the bundled model is present.
-        // Runs BEFORE the native evaluate so the pushed result lands
-        // in the pipeline. Snapshot is non-destructive; pipeline still
-        // drains audio in sentlog_evaluate.
+        // Run AASIST-L (utterance liveness) and whisper.cpp (ASR) in
+        // sequence BEFORE the native evaluate so their pushed results
+        // land in the pipeline. Both are best-effort — failure leaves
+        // the corresponding placeholder in place and model_versions.*
+        // flags it. Snapshots are non-destructive; the pipeline still
+        // drains the audio inside sentlog_evaluate.
         runAasistAndPushLiveness(handle: h)
+        runWhisperAndPushTranscript(handle: h)
 
         let resultJson: String = try await withCheckedThrowingContinuation { cont in
             let box = NativeBridge.ResultBox(cont)
