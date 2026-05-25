@@ -26,7 +26,8 @@ Four design pillars:
 - **Evidence** — every result is wrapped in a W3C Verifiable
   Credentials 2.0 envelope with Ed25519 or ECDSA-P256 proofs (the
   latter via Secure Enclave / Android KeyStore when available),
-  model versions, timestamps, and a Chromaprint audio fingerprint.
+  model versions, timestamps, and a homegrown MIT perceptual audio
+  fingerprint (`sentlog-pcp-v1`).
   Optional RFC 3161 TSA timestamps when an integrator configures a
   TSA endpoint.
 - **Presence** — the subject of the evidence. Liveness, engagement,
@@ -113,7 +114,7 @@ sentlog/
 | State | No user model, no sessions, no accounts. Opaque `session_id` passthrough. |
 | Personal data | Voice and video never leave the device unless explicitly configured. Fingerprint forwarding ships ~120 bytes of non-invertible perceptual hash. |
 | Licence | MIT |
-| Foundational dependencies | whisper.cpp (MIT), Silero VAD (MIT), AASIST-L (MIT), openSMILE (BSD), Chromaprint (LGPL), MediaPipe Face Mesh (Apache 2.0) |
+| Foundational dependencies | whisper.cpp (MIT), Silero VAD (MIT), AASIST-L (MIT), MediaPipe Face Mesh (Apache 2.0). Audio fingerprint and prosody features are homegrown MIT — see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). |
 
 ## Roadmap
 

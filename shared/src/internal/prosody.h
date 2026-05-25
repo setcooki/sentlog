@@ -38,13 +38,20 @@
 //
 // Limitations (intentional — bumped in a future chunk):
 //   - F0 via plain autocorrelation, no octave-error guard, no
-//     smoothing across frames. Good enough to compute variability,
+//     smoothing across frames. Real speech with strong second
+//     harmonics can flip between F0 and 2·F0 frame-to-frame,
+//     inflating std_f0_hz and pushing voice_score upward even for
+//     monotone speakers. Good enough to compute variability,
 //     not good enough as a clinical pitch tracker.
 //   - No jitter / shimmer / HNR (the harder eGeMAPS features).
 //     Adding them requires per-cycle pitch period extraction.
-//   - voice_score is a heuristic, not a trained model. The
-//     pipeline marks engagement_model_status = "training" so
-//     integrators don't display this as a confident measurement.
+//   - voice_score saturates cheaply. A 30 Hz F0 spread + a
+//     coefficient-of-variation of ~0.6 in RMS already reaches 1.0
+//     — both common in conversational English. The heuristic is
+//     not calibrated against any corpus; integrators MUST gate on
+//     engagement_model_status == "trained" before surfacing the
+//     score to end users. Until the trained head lands in Phase
+//     6+, the pipeline emits model_status = "training".
 
 #ifndef SENTLOG_INTERNAL_PROSODY_H
 #define SENTLOG_INTERNAL_PROSODY_H

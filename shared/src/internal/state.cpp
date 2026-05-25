@@ -257,7 +257,11 @@ std::string State::capabilities_json() const {
     // integrity, etc.) get populated by the bindings in later phases.
     json j;
     j["audio_capture"]          = true;   // the SDK can accept audio frames
-    j["motion_sensors"]         = false;  // platform-side; not wired yet
+    // motion_sensors: true iff the integrator opted in via config.
+    // The actual capture happens on the platform side (Android
+    // SensorManager / iOS CoreMotion); the C++ core just accepts
+    // pushed frames. Phase 3c+.
+    j["motion_sensors"]         = config_.use_motion_sensors;
     j["video_face_mesh"]        = false;  // platform-side; not wired yet
     j["device_integrity_check"] = false;  // platform-side; not wired yet
     // ota_updates / local_queue stay false until their real impls

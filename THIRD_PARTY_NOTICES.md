@@ -155,8 +155,6 @@ required by the respective licence; this file carries attribution.
 | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) | On-device ASR | MIT |
 | [ggml](https://github.com/ggerganov/ggml) | ML kernels backing whisper.cpp | MIT |
 | [Silero VAD](https://github.com/snakers4/silero-vad) | Voice activity detection | MIT |
-| [openSMILE](https://github.com/audeering/opensmile) | eGeMAPS prosody features | BSD-style (audEERING) |
-| [Chromaprint](https://github.com/acoustid/chromaprint) | Perceptual audio fingerprint | LGPL-2.1+ |
 | [MediaPipe Face Mesh](https://github.com/google/mediapipe) | Face landmark detection (Android, affect mode) | Apache-2.0 |
 | Apple Vision framework | Face landmark detection (iOS, affect mode) | Apple system framework |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON parsing and serialisation in the C++ core | MIT |
@@ -166,6 +164,24 @@ required by the respective licence; this file carries attribution.
 When the SDK build system integrates each of these in the phases
 that own them, the bundled binaries carry the respective licence
 texts and attribution notices as required.
+
+## Components considered and replaced
+
+Two components from earlier iterations of the rollout plan were
+dropped in favour of homegrown MIT implementations to keep the
+SDK's single-binary distribution story clean:
+
+- **Chromaprint (LGPL-2.1+)** — perceptual audio fingerprint.
+  Static-linking LGPL into an MIT SDK puts a relinking obligation
+  on every integrator. Replaced by `sentlog-pcp-v1` (a Goertzel
+  temporal-delta hash; `shared/src/internal/fingerprint.{h,cpp}`).
+- **openSMILE (GPL or commercial)** — eGeMAPS prosody features.
+  Dual GPL / commercial licence is fundamentally incompatible with
+  MIT distribution. Replaced by `sentlog-prosody-v1` (autocorrelation
+  F0 + RMS/ZCR statistics, inspired by the eGeMAPS spec;
+  `shared/src/internal/prosody.{h,cpp}`). The eGeMAPS feature *set*
+  is a published academic spec, so implementing it ourselves is
+  unencumbered; the openSMILE *implementation* is what's GPL.
 
 ---
 

@@ -856,6 +856,78 @@ TEST(PipelineTest, MotionPushOutsideCaptureFailsLifecycle) {
     sentlog_destroy(h);
 }
 
+TEST(PipelineTest, CustomScoringWeightsShiftPresenceSummary) {
+    // Phase 3 exit-criterion test: a custom scoring_weights override
+    // changes the composite presence.summary. Two captures with
+    // identical inputs, opposite weight extremes, should produce
+    // visibly different summaries when both audio_source and motion
+    // are populated.
+    auto run_with = [](const char* cfg_json) -> float {
+        sentlog_status_t s;
+        auto* h = sentlog_create(cfg_json, nullptr, nullptr, &s);
+        EXPECT_NE(h, nullptr);
+        EXPECT_EQ(sentlog_set_audio_route(h, SENTLOG_AUDIO_ROUTE_BUILT_IN),
+                  SENTLOG_OK);
+        EXPECT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+        auto audio = make_speech_2s();
+        sentlog_push_audio_frame(h, audio.data(), audio.size());
+        push_held_motion(h, 200, /* sigma = */ 0.20f);   // motion ~1.0
+        Capture cap;
+        EXPECT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+        const json j = json::parse(cap.result_json);
+        sentlog_destroy(h);
+        return j["presence"]["summary"].get<float>();
+    };
+
+    // Defaults: presence.audio_source weight 1.0, presence.motion 0.7.
+    // built-in mic = 1.0, motion ~1.0 → summary ~ (1*1 + 1*0.7)/(1+0.7) ≈ 1.0.
+    const float defaults_summary = run_with(
+        R"({"issuer":"did:example:x","min_duration_ms":500,
+            "use_motion_sensors":true})");
+
+    // Heavily down-weight audio_source. Motion (~1.0) should now
+    // dominate; summary stays high but the audio_source contribution
+    // collapses → summary still ~1.0 since both are ~1.0. Inverse
+    // case is more visible: down-weight motion so audio_source
+    // dominates and the held-device motion stops boosting the score.
+    // Use the more discriminating case: built-in mic AND zero motion,
+    // with motion weight cranked up so motion of 0 drags summary down.
+    auto run_no_motion = [](float motion_weight) -> float {
+        sentlog_status_t s;
+        const std::string cfg = std::string(
+            R"({"issuer":"did:example:x","min_duration_ms":500,
+                "use_motion_sensors":true,
+                "scoring_weights":{"presence.motion":)")
+            + std::to_string(motion_weight) + "}}";
+        auto* h = sentlog_create(cfg.c_str(), nullptr, nullptr, &s);
+        EXPECT_NE(h, nullptr);
+        EXPECT_EQ(sentlog_set_audio_route(h, SENTLOG_AUDIO_ROUTE_BUILT_IN),
+                  SENTLOG_OK);
+        EXPECT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+        auto audio = make_speech_2s();
+        sentlog_push_audio_frame(h, audio.data(), audio.size());
+        push_held_motion(h, 200, /* sigma = */ 0.0f);    // motion = 0
+        Capture cap;
+        EXPECT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+        const json j = json::parse(cap.result_json);
+        sentlog_destroy(h);
+        return j["presence"]["summary"].get<float>();
+    };
+    // With audio_source=1.0 and motion=0.0:
+    //   weight=0.1 → summary ≈ (1*1 + 0*0.1)/(1+0.1) ≈ 0.91
+    //   weight=5.0 → summary ≈ (1*1 + 0*5.0)/(1+5.0) ≈ 0.17
+    const float low_motion_weight  = run_no_motion(0.1f);
+    const float high_motion_weight = run_no_motion(5.0f);
+
+    EXPECT_GT(defaults_summary, 0.85f);
+    EXPECT_GT(low_motion_weight, 0.85f)
+        << "stationary device + low motion weight should barely affect summary";
+    EXPECT_LT(high_motion_weight, 0.3f)
+        << "stationary device + high motion weight should drag summary down";
+    EXPECT_GT(low_motion_weight, high_motion_weight)
+        << "the scoring_weights override must reach Pipeline::run";
+}
+
 TEST(PipelineTest, MotionUseFlagOffSuppressesEvenWhenPushed) {
     sentlog_status_t s;
     // kValidConfig has use_motion_sensors == false (default).

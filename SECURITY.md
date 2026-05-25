@@ -50,8 +50,8 @@ In scope:
 Out of scope (these belong to upstream projects — please report to
 them directly):
 
-- Vulnerabilities in whisper.cpp, Silero VAD, openSMILE, MediaPipe
-  Face Mesh, Chromaprint, AASIST-L, or any other dependency.
+- Vulnerabilities in whisper.cpp, Silero VAD, MediaPipe Face Mesh,
+  AASIST-L, or any other upstream dependency.
 - Vulnerabilities in integrator-supplied backends, signing keys, or
   TSA endpoints.
 - App-level issues in apps that embed Sentlog (those are the

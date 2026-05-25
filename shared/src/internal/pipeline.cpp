@@ -362,13 +362,18 @@ std::string Pipeline::run(const Config& config,
         if (prosody.has_value()) {
             e["voice_score"]  = prosody->voice_score;
             e["model_status"] = "training";
-            // score is the weighted ensemble of populated
-            // sub-fields. Only voice is populated today; face joins
-            // in Phase 5. Per scoring_weights from Phase 3b.
+            // Weighted ensemble over populated sub-fields, same
+            // shape as presence.summary above. Only voice is
+            // populated today; face_score joins in Phase 5 as a
+            // second term in the same loop. With a single
+            // populated field, score = voice_score regardless of
+            // the weight value — the weight only starts to bite
+            // once a second sub-field lands.
             const float w_voice = weight_or_default(config, "engagement.voice");
-            e["score"] = (w_voice > 0.0f)
-                ? prosody->voice_score
-                : 0.0f;
+            float num = prosody->voice_score * w_voice;
+            float den = w_voice;
+            // (Phase 5+: add the face_score term here.)
+            e["score"] = (den > 0.0f) ? (num / den) : 0.0f;
         } else {
             e["voice_score"]  = 0.65f;
             e["model_status"] = "placeholder";
