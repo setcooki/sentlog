@@ -290,3 +290,61 @@ TEST(ConfigTest, CallbackSinkRequiresNoSinkSideFields) {
         "sink":{"kind":"callback"}}]})";
     EXPECT_EQ(parse_config(j, &cfg, nullptr), SENTLOG_OK);
 }
+
+// --- Custom projection's custom_fields validation (Phase 4f) ---
+
+TEST(ConfigTest, CustomProjectionRequiresCustomFields) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"c","projection":"Custom",
+        "sink":{"kind":"callback"}}]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "forwarders[0].custom_fields");
+}
+
+TEST(ConfigTest, CustomProjectionRejectsEmptyFieldsArray) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"c","projection":"Custom",
+        "custom_fields":[],
+        "sink":{"kind":"callback"}}]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "forwarders[0].custom_fields");
+}
+
+TEST(ConfigTest, CustomProjectionRejectsNonStringEntries) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"c","projection":"Custom",
+        "custom_fields":["transcript.text", 42],
+        "sink":{"kind":"callback"}}]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "forwarders[0].custom_fields[1]");
+}
+
+TEST(ConfigTest, NonCustomProjectionRejectsCustomFields) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"p","projection":"Full",
+        "custom_fields":["transcript.text"],
+        "sink":{"kind":"callback"}}]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "forwarders[0].custom_fields");
+}
+
+TEST(ConfigTest, CustomProjectionParsesValidFields) {
+    Config cfg;
+    const char* j = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"c","projection":"Custom",
+        "custom_fields":["transcript.text","liveness.score"],
+        "sink":{"kind":"callback"}}]})";
+    EXPECT_EQ(parse_config(j, &cfg, nullptr), SENTLOG_OK);
+    ASSERT_EQ(cfg.forwarders.size(), 1u);
+    ASSERT_EQ(cfg.forwarders[0].custom_fields.size(), 2u);
+    EXPECT_EQ(cfg.forwarders[0].custom_fields[0], "transcript.text");
+    EXPECT_EQ(cfg.forwarders[0].custom_fields[1], "liveness.score");
+}

@@ -1326,6 +1326,152 @@ TEST(PipelineTest, LocalQueueBadPathSkipsSilently) {
     sentlog_destroy(h);
 }
 
+// --- Phase 4f: sampling + custom_fields + telemetry on skip ---
+
+namespace {
+struct TelemetryCapture {
+    std::vector<std::string> events;
+};
+void on_telemetry(const char* event_json, void* userdata) {
+    auto* tc = static_cast<TelemetryCapture*>(userdata);
+    tc->events.push_back(event_json ? event_json : "");
+}
+}  // namespace
+
+TEST(PipelineTest, SampleRateZeroSkipsDispatcherAndEmitsTelemetry) {
+    const char* cfg = R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "p", "projection": "Full", "sample_rate": 0.0,
+              "sink": { "kind": "callback", "endpoint": "x" } }
+        ]
+    })";
+    sentlog_status_t s;
+    TelemetryCapture tc;
+    auto* h = sentlog_create(cfg, &on_telemetry, &tc, &s);
+    ASSERT_NE(h, nullptr);
+
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &on_dispatch, &dcap),
+              SENTLOG_OK);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+
+    EXPECT_TRUE(dcap.forwarder_names.empty())
+        << "sample_rate 0.0 must never dispatch";
+    bool saw_dropped = false;
+    for (const auto& ev : tc.events) {
+        const auto j = json::parse(ev);
+        if (j["type"] == "ForwarderOutcome" &&
+            j["forwarder_name"] == "p" &&
+            j["outcome"] == "dropped") {
+            saw_dropped = true; break;
+        }
+    }
+    EXPECT_TRUE(saw_dropped) << "skip must emit a telemetry event";
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, SampleRateOneAlwaysDispatches) {
+    const char* cfg = R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "p", "projection": "Full", "sample_rate": 1.0,
+              "sink": { "kind": "callback", "endpoint": "x" } }
+        ]
+    })";
+    sentlog_status_t s;
+    auto* h = sentlog_create(cfg, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &on_dispatch, &dcap),
+              SENTLOG_OK);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    EXPECT_EQ(dcap.forwarder_names.size(), 1u);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, CustomProjectionFieldsFlowThroughDispatcher) {
+    const char* cfg = R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "custom", "projection": "Custom",
+              "custom_fields": ["transcript.text", "presence.audio_source"],
+              "sink": { "kind": "callback", "endpoint": "x" } }
+        ]
+    })";
+    sentlog_status_t s;
+    auto* h = sentlog_create(cfg, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    EXPECT_EQ(sentlog_set_audio_route(h, SENTLOG_AUDIO_ROUTE_BUILT_IN),
+              SENTLOG_OK);
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &on_dispatch, &dcap),
+              SENTLOG_OK);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+
+    ASSERT_EQ(dcap.envelope_jsons.size(), 1u);
+    const json env = json::parse(dcap.envelope_jsons[0]);
+    EXPECT_EQ(env["credentialSubject"]["projection"], "Custom");
+    const auto& payload = env["credentialSubject"]["payload"];
+    // Requested fields present.
+    EXPECT_TRUE(payload["transcript"].contains("text"));
+    EXPECT_FLOAT_EQ(payload["presence"]["audio_source"].get<float>(), 1.0f);
+    // Unrequested fields absent.
+    EXPECT_FALSE(payload.contains("liveness"));
+    EXPECT_FALSE(payload.contains("fingerprint"));
+    EXPECT_FALSE(payload.contains("engagement"));
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, NoDispatcherEmitsForwarderOutcomeDropped) {
+    const char* cfg = R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "p", "projection": "Full",
+              "sink": { "kind": "callback", "endpoint": "x" } }
+        ]
+    })";
+    sentlog_status_t s;
+    TelemetryCapture tc;
+    auto* h = sentlog_create(cfg, &on_telemetry, &tc, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+
+    bool saw_dropped = false;
+    for (const auto& ev : tc.events) {
+        const auto j = json::parse(ev);
+        if (j["type"] == "ForwarderOutcome" &&
+            j["outcome"] == "dropped") {
+            saw_dropped = true; break;
+        }
+    }
+    EXPECT_TRUE(saw_dropped);
+    sentlog_destroy(h);
+}
+
 TEST(PipelineTest, SetSigningKeyRejectsWrongLength) {
     sentlog_status_t s;
     auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);

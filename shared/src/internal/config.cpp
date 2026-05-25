@@ -132,6 +132,31 @@ bool parse_forwarder(const json& j, Forwarder& out,
         return fail(error_field, path + ".projection");
     }
 
+    // Phase 4f: Custom projection accepts a custom_fields array of
+    // dotted paths into SentlogResult. Required for Custom; rejected
+    // (loudly) for any other projection so typos surface at init.
+    if (out.projection == "Custom") {
+        if (!j.contains("custom_fields") || !j["custom_fields"].is_array()) {
+            return fail(error_field, path + ".custom_fields");
+        }
+        for (size_t i = 0; i < j["custom_fields"].size(); ++i) {
+            const auto& f = j["custom_fields"][i];
+            if (!f.is_string() || f.get<std::string>().empty()) {
+                if (error_field != nullptr) {
+                    *error_field = path + ".custom_fields[" +
+                                   std::to_string(i) + "]";
+                }
+                return false;
+            }
+            out.custom_fields.push_back(f.get<std::string>());
+        }
+        if (out.custom_fields.empty()) {
+            return fail(error_field, path + ".custom_fields");
+        }
+    } else if (j.contains("custom_fields")) {
+        return fail(error_field, path + ".custom_fields");
+    }
+
     if (j.contains("sample_rate")) {
         if (!j["sample_rate"].is_number()) {
             return fail(error_field, path + ".sample_rate");

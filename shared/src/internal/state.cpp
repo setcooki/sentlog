@@ -4,6 +4,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <random>
 
 #include "internal/envelope.h"
 #include "internal/pipeline.h"
@@ -371,20 +372,54 @@ void State::dispatch_envelopes(const std::string& result_json) {
         }
     }
 
+    // Sampling RNG (Phase 4f). One per dispatch invocation —
+    // re-seeded from random_device so two evaluates on the same
+    // handle don't lock-step. For tests where deterministic skip
+    // matters, integrators set sample_rate to 0.0 or 1.0.
+    std::mt19937 rng{std::random_device{}()};
+    std::uniform_real_distribution<float> uniform01{0.0f, 1.0f};
+
+    auto emit_skip = [&](const std::string& fw_name, const char* reason) {
+        // Use the spec's exhaustive TelemetryEvent union (§3.2):
+        // ForwarderOutcome { forwarder_name, outcome, attempts }.
+        // Skip events surface as outcome="dropped" attempts=0; the
+        // per-reason granularity (sampled / no_dispatcher / etc.) is
+        // not yet carried in the wire shape. A future spec bump can
+        // add an optional `reason` field; today this keeps the
+        // binding decoders strict-by-spec.
+        (void)reason;
+        json ev;
+        ev["type"]           = "ForwarderOutcome";
+        ev["forwarder_name"] = fw_name;
+        ev["outcome"]        = "dropped";
+        ev["attempts"]       = 0;
+        emit_telemetry(ev.dump());
+    };
+
     const std::string valid_from = iso8601_utc_now();
     for (const auto& fw : config_.forwarders) {
+        // Sampling: skip the forwarder with probability
+        // (1 - sample_rate). sample_rate == 1.0 always fires;
+        // sample_rate == 0.0 never fires. The skip emits a
+        // telemetry event so integrators can see the rate
+        // empirically.
+        if (fw.sample_rate < 1.0f) {
+            const float r = uniform01(rng);
+            if (r >= fw.sample_rate) {
+                emit_skip(fw.name, "sampled");
+                continue;
+            }
+        }
+
         Projection projection = Projection::Full;
-        // Forwarder.projection was validated at parse_config time;
-        // parse_projection_name only fails if someone hand-mutated
-        // the struct, so the false branch is genuinely defensive.
-        if (!parse_projection_name(fw.projection, &projection)) continue;
+        if (!parse_projection_name(fw.projection, &projection)) {
+            emit_skip(fw.name, "unknown_projection");
+            continue;
+        }
 
         ProjectionSpec spec;
-        spec.kind = projection;
-        // Custom-projection field list lands in 4f when Forwarder
-        // gains a custom_fields member; today projection=="Custom"
-        // routes through with an empty field list and produces an
-        // empty payload — telemetry rather than a malformed envelope.
+        spec.kind          = projection;
+        spec.custom_fields = fw.custom_fields;  // empty for non-Custom
 
         std::string envelope_json;
         try {
@@ -395,29 +430,29 @@ void State::dispatch_envelopes(const std::string& result_json) {
                     envelope_json, snap_key, snap_vm, valid_from);
             }
         } catch (...) {
-            // Don't let envelope construction take down evaluate.
-            // A real implementation would emit a telemetry event;
-            // 4d ships the silent-skip path and 4f adds telemetry.
+            // Envelope construction / signing threw — surface it so
+            // the integrator notices, then continue with the next
+            // forwarder so one bad envelope can't take down evaluate.
+            emit_skip(fw.name, "envelope_build_failed");
             continue;
         }
 
         if (fw.sink_kind == "local_queue") {
-            // Phase 4d2: append the envelope as one NDJSON line so
-            // sentlog_drain_queue can read it back line-by-line in
-            // a future chunk. The integrator's sink_json must carry
-            // a "path" string; failure to parse or open the file
-            // silently skips this forwarder.
+            // Append the envelope as one NDJSON line so
+            // sentlog_drain_queue can read it back line-by-line.
+            // sink_json's "path" was validated at parse_config (4e);
+            // file-open failures still emit a telemetry skip event.
             try {
                 const auto sj = json::parse(fw.sink_json);
-                if (!sj.contains("path") || !sj["path"].is_string()) continue;
                 const std::string path = sj["path"].get<std::string>();
                 std::ofstream out(path, std::ios::app | std::ios::binary);
-                if (!out) continue;
+                if (!out) {
+                    emit_skip(fw.name, "local_queue_open_failed");
+                    continue;
+                }
                 out << envelope_json << "\n";
             } catch (...) {
-                // Bad sink JSON / disk full / permission denied: drop
-                // the envelope. Telemetry hook + retry/backoff land in
-                // 4f.
+                emit_skip(fw.name, "local_queue_open_failed");
             }
             continue;
         }
@@ -428,10 +463,12 @@ void State::dispatch_envelopes(const std::string& result_json) {
                fw.sink_json.c_str(),
                envelope_json.c_str(),
                cb_data);
+        } else {
+            // Without a registered dispatcher, non-local-queue sinks
+            // can't be delivered. Tell the integrator rather than
+            // silently dropping.
+            emit_skip(fw.name, "no_dispatcher_registered");
         }
-        // Without a registered dispatcher, non-local-queue sinks
-        // are silently skipped — the integrator hasn't told us
-        // where to send.
     }
 }
 

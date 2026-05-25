@@ -22,10 +22,15 @@ struct Forwarder {
     std::string name;
     std::string projection;       // enum, validated against the allowed set
     float       sample_rate{1.0f};
-    // sink is opaque to the core in Phase 1 — the platform binding
-    // realises the sink and the C++ core hands off projected payloads
-    // to it via the C ABI's CallbackSink path. Other sinks land in
-    // Phase 4.
+    // Only consumed when projection == "Custom" (Phase 4f). List of
+    // dotted JSON paths the integrator wants in the projected
+    // payload. Empty for non-Custom projections.
+    std::vector<std::string> custom_fields;
+    // sink is opaque to the core: shared/ doesn't run HTTP, the
+    // platform binding realises http/webhook sinks via its
+    // URLSession/OkHttp client. The C++ core dispatches local_queue
+    // (file append) itself and routes everything else through the
+    // integrator-supplied envelope dispatcher (Phase 4d).
     std::string sink_kind;        // "http" | "webhook" | "local_queue" | "callback"
     std::string sink_json;        // sink-specific config, opaque here
 };
