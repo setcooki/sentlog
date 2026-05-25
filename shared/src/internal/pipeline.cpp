@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "internal/fingerprint.h"
+#include "internal/prosody.h"
 #include "internal/ring_buffer.h"
 #include "internal/text_match.h"
 #include "internal/vad/vad.h"
@@ -343,13 +344,36 @@ std::string Pipeline::run(const Config& config,
         && direction >= config.direction_threshold;
     result["thresholds_met"] = thresholds_met;
 
-    // 7. Engagement — placeholder model. model_status = "placeholder"
-    //    signals integrators not to surface this until it's "trained".
+    // 7. Engagement — voice_score from the Phase 3d prosody
+    //    extractor when speech was detected; otherwise the constant
+    //    placeholder. model_status reflects which path ran:
+    //      "training"     — real (but heuristic, not trained) signal
+    //      "placeholder"  — extractor didn't run or had no signal
+    //    Integrators are told not to surface engagement.score until
+    //    model_status is "trained" (Phase 6+ when the trained head
+    //    lands).
+    std::optional<ProsodyFeatures> prosody;
+    if (vad_report.has_speech()) {
+        prosody = extract_prosody(audio.data(), audio.size());
+        if (!prosody->has_signal) prosody.reset();
+    }
     {
         json e;
-        e["score"]        = 0.65f;
-        e["voice_score"]  = 0.65f;
-        e["model_status"] = "placeholder";
+        if (prosody.has_value()) {
+            e["voice_score"]  = prosody->voice_score;
+            e["model_status"] = "training";
+            // score is the weighted ensemble of populated
+            // sub-fields. Only voice is populated today; face joins
+            // in Phase 5. Per scoring_weights from Phase 3b.
+            const float w_voice = weight_or_default(config, "engagement.voice");
+            e["score"] = (w_voice > 0.0f)
+                ? prosody->voice_score
+                : 0.0f;
+        } else {
+            e["voice_score"]  = 0.65f;
+            e["model_status"] = "placeholder";
+            e["score"]        = 0.65f;
+        }
         result["engagement"] = e;
     }
 
@@ -377,7 +401,9 @@ std::string Pipeline::run(const Config& config,
         mv["asr"]      = pushed_transcript.has_value()
             ? "whisper-cpp-platform"
             : "placeholder-not-loaded";
-        mv["prosody"]  = "0.0.0-phase1-not-loaded";
+        mv["prosody"]  = prosody.has_value()
+            ? prosody_algo()
+            : "placeholder-not-loaded";
         mv["vad"]      = used_pushed_vad
             ? "silero-vad-v5-platform-onnx"
             : "energy-vad-baseline";

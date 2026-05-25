@@ -21,6 +21,7 @@ add_executable(sentlog_tests
     pipeline_test.cpp
     text_match_test.cpp
     fingerprint_test.cpp
+    prosody_test.cpp
 )
 target_link_libraries(sentlog_tests
     PRIVATE

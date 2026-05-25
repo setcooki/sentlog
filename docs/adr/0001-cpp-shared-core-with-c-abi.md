@@ -56,8 +56,8 @@ keep AI-coded FFI tractable.
   (state, scoring, fingerprint, envelope assembly): every platform
   invokes literally the same object code through the same C entry
   points.
-- whisper.cpp, ggml, openSMILE (all C/C++) integrate without language
-  hops.
+- whisper.cpp, ggml, and homegrown MIT feature extractors (all C/C++)
+  integrate without language hops.
 - The same C++ core compiles to WebAssembly for a future
   `@sentlog/web` (Phase 9).
 

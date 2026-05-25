@@ -40,6 +40,7 @@ let package = Package(
                 "src/internal/pipeline.cpp",
                 "src/internal/text_match.cpp",
                 "src/internal/fingerprint.cpp",
+                "src/internal/prosody.cpp",
                 "src/internal/vad/energy_vad.cpp",
             ],
             publicHeadersPath: "include",

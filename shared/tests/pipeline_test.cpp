@@ -83,12 +83,16 @@ TEST(PipelineTest, ResultJsonSchemaIsComplete) {
     }
     EXPECT_EQ(j["schema_version"], "1");
     EXPECT_EQ(j["evidence_grade"], "DeviceUnattested");
-    EXPECT_EQ(j["engagement"]["model_status"], "placeholder");
+    // Phase 3d: synthetic speech fixture has detectable F0, so the
+    // prosody extractor runs and model_status flips to "training".
+    EXPECT_EQ(j["engagement"]["model_status"], "training");
     EXPECT_EQ(j["transcript"]["language"], "en");
     // Phase 3a: fingerprint always computed; 2 s of speech is well
     // above the two-frame minimum.
     EXPECT_EQ(j["fingerprint"]["algo"], "sentlog-pcp-v1");
     EXPECT_FALSE(j["fingerprint"]["bytes"].get<std::string>().empty());
+    // Phase 3d: prosody extractor populated model_versions.prosody.
+    EXPECT_EQ(j["model_versions"]["prosody"], "sentlog-prosody-v1");
 
     sentlog_destroy(h);
 }

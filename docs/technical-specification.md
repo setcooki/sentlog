@@ -23,7 +23,7 @@ Companion documents:
 | 1.5 | **Kotlin: `suspend fun evaluate(): SentlogResult`. Swift: `func evaluate() async throws -> SentlogResult`** | Native idioms per platform; cancellation is free. |
 | 1.6 | **`Sentlog` brand. Cocoa-style prefixes: `SentlogResult`, `SentlogConfig`** | Idiomatic in Swift, fine in Kotlin. |
 | 1.7 | **AASIST-L for liveness from week 2, not rule-based** | AASIST-L is the small variant of the AASIST graph-attention anti-spoofing architecture — ~85K parameters, real-time on CPU, ~1% EER on ASVspoof 2019-LA closed-set. Paper attribution and weight licence in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). |
-| 1.8 | **Whisper-encoder linear probe (~50 KB) + openSMILE eGeMAPS MLP head (~200 KB), ensembled** | Marginal compute is near-zero because whisper is already running for ASR; the encoder's hidden state is reused as a feature stream for the prosody probe. |
+| 1.8 | **Whisper-encoder linear probe (~50 KB) + `sentlog-prosody-v1` MLP head (~200 KB), ensembled** | Marginal compute is near-zero because whisper is already running for ASR; the encoder's hidden state is reused as a feature stream for the prosody probe. The MIT prosody extractor (`shared/src/internal/prosody.{h,cpp}`) replaces the rollout-plan's original openSMILE choice — openSMILE is GPL / commercial-dual which is incompatible with our MIT distribution; the eGeMAPS feature *set* is a published spec, the openSMILE *implementation* is what's GPL. |
 | 1.9 | **Composable forwarding for all output destinations** | Fully decouples from any specific service. Integrator names every endpoint. |
 | 1.10 | **Audio input source + motion coherence are first-class signals; device integrity optional** | Catches the highest-volume fraud class (device farms). |
 | 1.11 | **Video used for affect / sentiment enrichment only; lip-sync as anti-spoof is reserved for future activation** | Augments engagement scoring. Lip-sync is cheap to add later because affect mode already captures face-mesh data. |
@@ -598,8 +598,11 @@ corpus:
   skewed toward studio-quality speech and a limited speaker set.
 - **whisper** (ASR) — multilingual but heavily English-weighted;
   recognition varies by accent, age, and noise environment.
-- **openSMILE / eGeMAPS** — derived from European acted-emotion
-  corpora; prosody calibration is not culturally neutral.
+- **`sentlog-prosody-v1`** — a small MIT-licensed extractor over
+  pitch / energy / voicing stats inspired by eGeMAPS. Heuristic
+  voice_score; not yet trained on a corpus, and the eGeMAPS lineage
+  it draws from is itself derived from European acted-emotion
+  corpora, so prosody calibration is not culturally neutral.
 - **MediaPipe Face Mesh** — face geometry estimation varies across
   skin tones and lighting conditions.
 

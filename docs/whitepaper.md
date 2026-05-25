@@ -37,8 +37,9 @@ Several positions need stating up front:
    channel.
 
 3. **The engagement model is a small probe over pretrained features.**
-   Whisper-encoder hidden-state linear probe (~50 KB) + openSMILE
-   eGeMAPS MLP (~200 KB), ensembled. Marginal compute is near-zero
+   Whisper-encoder hidden-state linear probe (~50 KB) +
+   `sentlog-prosody-v1` MLP (~200 KB), ensembled. Marginal compute
+   is near-zero
    because whisper is already running for ASR.
 
 4. **Transcript is a first-class output.** The pipeline runs ASR
@@ -151,13 +152,16 @@ layer* on which integrators build those things.
 ## 4. Open-Source Positioning
 
 Sentlog ships under MIT. There is no IP defense in the SDK — every
-model architecture used (AASIST-L, whisper, eGeMAPS, MediaPipe Face
-Mesh) is publicly described, pretrained weights are public, libraries
-are open-source. The perceptual audio fingerprint is a homegrown MIT
-implementation (`sentlog-pcp-v1`) rather than Chromaprint, which is
-LGPL and would push static-linking obligations onto the SDK's
-single-binary distribution. Sentlog stands on these shoulders and
-provides shoulders for others to stand on.
+model architecture used (AASIST-L, whisper, MediaPipe Face Mesh) is
+publicly described, pretrained weights are public, libraries are
+open-source. Two components are homegrown MIT replacements where the
+canonical implementation's licence would compromise the SDK's
+distribution story: the perceptual audio fingerprint
+(`sentlog-pcp-v1` instead of LGPL Chromaprint) and the prosody
+feature extractor (`sentlog-prosody-v1` instead of GPL openSMILE —
+the eGeMAPS feature *set* is the published spec we implement, the
+openSMILE *implementation* is what's GPL). Sentlog stands on these
+shoulders and provides shoulders for others to stand on.
 
 The labelled corpus (see §6 below) is a model-quality investment, not
 an IP moat. It improves the engagement and affect heads as it grows
@@ -207,7 +211,7 @@ for end-customers.
                 │   ├── capture/    ring buffer, framing          │  only what
                 │   ├── vad/        Silero wrapper                │  must be
                 │   ├── asr/        whisper.cpp wrapper           │  C++:
-                │   ├── prosody/    eGeMAPS + whisper-probe       │  ML kernels,
+                │   ├── prosody/    sentlog-prosody-v1 + probe   │  ML kernels,
                 │   ├── liveness/   AASIST-L wrapper              │  scoring,
                 │   ├── scoring/    score assembly                │  fingerprint,
                 │   ├── fingerprint/ sentlog-pcp-v1 hash          │  audio

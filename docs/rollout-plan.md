@@ -99,8 +99,12 @@ scores correctly against `target_phrase`.
 
 - Motion-coherence module: accelerometer + gyroscope buffering, tremor
   + speech-coupled-motion analysis, emits `presence.motion`.
-- Prosody features: openSMILE eGeMAPS (audEERING C++ build compiled
-  into shared core) + whisper-encoder hidden-state probe.
+- Prosody features: `sentlog-prosody-v1` (homegrown MIT C++,
+  inspired by the eGeMAPS feature set) — openSMILE was the original
+  call but its GPL / commercial dual-licence is incompatible with
+  the SDK's MIT distribution, same fork-in-the-road we took for
+  Chromaprint. Plus whisper-encoder hidden-state probe (deferred to
+  a follow-up; the prosody-only path is what Phase 3d ships).
 - `engagement` returns ensemble of voice signals; surfaced as
   `engagement.voice_score` with overall `engagement.score`;
   `engagement_model_status: "training"`.
@@ -241,8 +245,9 @@ milestones in the whitepaper.
 ### Phase 9 — `@sentlog/web` (browser WebAssembly) — Post-MVP
 
 Same C++ core compiled to WASM via Emscripten. whisper.cpp has mature
-WASM builds; openSMILE has been compiled to WASM; AASIST-L can be
-ONNX-WASM. TypeScript surface mirrors `@sentlog/capacitor`. Different
+WASM builds; `sentlog-prosody-v1` is pure C++ and compiles to WASM
+transparently; AASIST-L can be ONNX-WASM. TypeScript surface mirrors
+`@sentlog/capacitor`. Different
 runtime — not in v1.0; tracked here as a defined post-MVP deliverable.
 Estimated 3–4 weeks of work when scheduled.
 
@@ -280,7 +285,7 @@ Estimated 3–4 weeks of work when scheduled.
 
 1. ACFT-style variable-length encoder context — baseline in Phase 2.
 2. GPU/Vulkan delegate via ggml where supported.
-3. Reduce prosody head to eGeMAPS-only on Android, drop whisper-probe.
+3. Reduce prosody head to `sentlog-prosody-v1` only on Android, drop whisper-probe.
 4. Switch iOS to an Apple-platform-native ASR alternative (iOS-only).
 5. Raise min Android API / SoC class (product decision).
 
@@ -333,7 +338,7 @@ ID. No user identifier. No transcription content. No video frames.
 | Android inference speed on mid-range | UX breaking if pipeline > 12s | Benchmark gate (§2); ACFT baseline | Unvalidated until Week 2 |
 | Voice-cloning attacks at scale | Cross-generator liveness 55–80% | Multi-modal scoring; per-attack-class reporting; lip-sync deliberately deferred as cheap-to-activate reserve weapon | Partial — deliberate |
 | AASIST-L pretrained weight licence | (Resolved — was: 4-week slip if non-permissive) | `clovaai/aasist` repo + weights MIT; ASVspoof 2019-LA training data ODC-BY 1.0. Attributions in `THIRD_PARTY_NOTICES.md`. | Resolved — see ADR 0004 |
-| Upstream OSS dependency drift | whisper.cpp / Silero / openSMILE / MediaPipe stagnate or break | Pin to specific upstream versions; monthly health check; budget for in-house maintenance fork if any project goes silent for 6+ months | Tracking |
+| Upstream OSS dependency drift | whisper.cpp / Silero / MediaPipe stagnate or break | Pin to specific upstream versions; monthly health check; budget for in-house maintenance fork if any project goes silent for 6+ months | Tracking |
 | Engagement model cold start | First 5–7 months scored against thin model | `engagement_model_status` field surfaces truth; integrators forbidden to display engagement until `"trained"` | Managed |
 | Gaming at $0.01 scale | Fraudulent submissions reduce pool value | Multi-modal catches farms; fingerprint forwarding catches duplicates | Addressed |
 | Self-labelled corpus pace | Engagement timeline depends on labelling throughput | Revised to Months 5–7; labelling budget Phase 0 question | Managed |

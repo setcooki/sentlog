@@ -84,8 +84,9 @@ sentlog/
 | React Native bridge | TypeScript, Kotlin (NativeModule), Swift (`@objc`) |
 | Capacitor bridge | TypeScript, Kotlin (`@CapacitorPlugin`), Swift (`CAP_PLUGIN`) |
 | Evidence verifier | Python (single-file, stdlib + `cryptography`) |
-| Models | whisper.cpp (Q5_1, ACFT), AASIST-L, openSMILE eGeMAPS, MediaPipe Face Mesh, Silero VAD |
+| Models | whisper.cpp (Q5_1, ACFT), AASIST-L, MediaPipe Face Mesh, Silero VAD |
 | Audio fingerprint | homegrown MIT `sentlog-pcp-v1` (Goertzel temporal-delta hash) — Chromaprint dropped over LGPL static-link burden |
+| Prosody features | homegrown MIT `sentlog-prosody-v1` (F0 / energy / voicing-stat heuristic) — openSMILE dropped over GPL/commercial dual-licence incompatibility |
 | Signing | Ed25519 (software), ECDSA-P256 (hardware-backed via Secure Enclave / KeyStore StrongBox) |
 | Evidence format | W3C Verifiable Credentials 2.0 with `DataIntegrityProof` |
 | Optional timestamping | RFC 3161 TSA |
