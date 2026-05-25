@@ -155,6 +155,32 @@ bool parse_forwarder(const json& j, Forwarder& out,
     if (kAllowedSinkKinds.find(out.sink_kind) == kAllowedSinkKinds.end()) {
         return fail(error_field, path + ".sink.kind");
     }
+
+    // Phase 4e: per-sink_kind shape validation. The binding side is
+    // what actually POSTs / writes, but we catch missing required
+    // fields at init so the integrator gets a typed error rather
+    // than a silent runtime no-op.
+    if (out.sink_kind == "http" || out.sink_kind == "webhook") {
+        if (!sink.contains("url") || !sink["url"].is_string() ||
+            sink["url"].get<std::string>().empty()) {
+            return fail(error_field, path + ".sink.url");
+        }
+        if (out.sink_kind == "webhook") {
+            if (!sink.contains("hmac_secret") ||
+                !sink["hmac_secret"].is_string() ||
+                sink["hmac_secret"].get<std::string>().empty()) {
+                return fail(error_field, path + ".sink.hmac_secret");
+            }
+        }
+    } else if (out.sink_kind == "local_queue") {
+        if (!sink.contains("path") || !sink["path"].is_string() ||
+            sink["path"].get<std::string>().empty()) {
+            return fail(error_field, path + ".sink.path");
+        }
+    }
+    // callback: no required sink-side fields — the binding's
+    // registered envelope dispatcher does the work.
+
     out.sink_json = sink.dump();
     return true;
 }

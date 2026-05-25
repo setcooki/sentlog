@@ -245,3 +245,48 @@ TEST(ConfigTest, ScoringWeightKeysCoversAllPublished) {
             << "missing default for key " << k;
     }
 }
+
+// --- Sink-shape validation (Phase 4e) ---
+
+TEST(ConfigTest, HttpSinkRequiresUrl) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"a","projection":"Full",
+        "sink":{"kind":"http"}}]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "forwarders[0].sink.url");
+}
+
+TEST(ConfigTest, WebhookSinkRequiresUrlAndHmacSecret) {
+    Config cfg;
+    std::string err;
+    const char* missing_secret = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"a","projection":"Full",
+        "sink":{"kind":"webhook","url":"https://x/"}}]})";
+    EXPECT_EQ(parse_config(missing_secret, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "forwarders[0].sink.hmac_secret");
+
+    const char* both_present = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"a","projection":"Full",
+        "sink":{"kind":"webhook","url":"https://x/","hmac_secret":"k"}}]})";
+    EXPECT_EQ(parse_config(both_present, &cfg, nullptr), SENTLOG_OK);
+}
+
+TEST(ConfigTest, LocalQueueSinkRequiresPath) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"q","projection":"Full",
+        "sink":{"kind":"local_queue"}}]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "forwarders[0].sink.path");
+}
+
+TEST(ConfigTest, CallbackSinkRequiresNoSinkSideFields) {
+    Config cfg;
+    const char* j = R"({"issuer":"did:example:x",
+        "forwarders":[{"name":"c","projection":"Full",
+        "sink":{"kind":"callback"}}]})";
+    EXPECT_EQ(parse_config(j, &cfg, nullptr), SENTLOG_OK);
+}
