@@ -42,9 +42,15 @@ let package = Package(
                 "src/internal/fingerprint.cpp",
                 "src/internal/prosody.cpp",
                 "src/internal/envelope.cpp",
+                "src/internal/signing.cpp",
                 "src/internal/vad/energy_vad.cpp",
+                "external/tweetnacl/tweetnacl.c",
+                "external/tweetnacl/randombytes_stub.c",
             ],
             publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("external"),
+            ],
             cxxSettings: [
                 .headerSearchPath("src"),
                 .headerSearchPath("external"),

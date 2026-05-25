@@ -53,7 +53,10 @@ add_library(sentlog STATIC
     src/internal/fingerprint.cpp
     src/internal/prosody.cpp
     src/internal/envelope.cpp
+    src/internal/signing.cpp
     src/internal/vad/energy_vad.cpp
+    external/tweetnacl/tweetnacl.c
+    external/tweetnacl/randombytes_stub.c
 )
 target_include_directories(sentlog
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -64,6 +67,15 @@ set_target_properties(sentlog PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
     POSITION_INDEPENDENT_CODE ON
+)
+# tweetnacl is third-party C with a different warning posture than our
+# C++ — silence the project-wide -Werror set on its sources so its
+# implicit conversions don't fail strict-warnings CI. We don't modify
+# upstream source, so we can't fix its warnings.
+set_source_files_properties(
+    external/tweetnacl/tweetnacl.c
+    external/tweetnacl/randombytes_stub.c
+    PROPERTIES COMPILE_OPTIONS "-w"
 )
 
 if(SENTLOG_BUILD_TESTS)

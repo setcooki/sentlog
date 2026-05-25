@@ -23,6 +23,7 @@ add_executable(sentlog_tests
     fingerprint_test.cpp
     prosody_test.cpp
     envelope_test.cpp
+    signing_test.cpp
 )
 target_link_libraries(sentlog_tests
     PRIVATE
