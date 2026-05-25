@@ -30,6 +30,7 @@
 #define SENTLOG_INTERNAL_ENVELOPE_H
 
 #include <string>
+#include <vector>
 
 #include "internal/config.h"
 
@@ -42,6 +43,42 @@ constexpr const char* envelope_format() {
     return "sentlog-evidence/1";
 }
 
+/// Spec §4.3 projection variants. Each projection narrows the
+/// SentlogResult payload to a different subset before the envelope
+/// is built — the projection name surfaces in
+/// `credentialSubject.projection` so verifiers know what they're
+/// looking at.
+enum class Projection {
+    Full,                // everything except raw audio clip
+    FullPlusAudioClip,   // Full + Opus clip (clip wiring lands in 4g)
+    ScoresOnly,          // scores + transcript.text; no fingerprint/clip
+    TranscriptOnly,      // transcript + word_timings only
+    EvidenceFingerprint, // scores + fingerprint; no transcript
+    EvidenceClip,        // scores + Opus clip; no transcript (clip in 4g)
+    Custom,              // payload is constructed from custom_fields
+};
+
+/// Per-forwarder projection setting. `custom_fields` is only read
+/// when `kind == Custom`; each entry is a dotted JSON path
+/// (e.g. "transcript.text", "liveness.score", "presence.audio_source").
+/// Paths that don't exist in the result are silently dropped — the
+/// integrator is responsible for asking for fields the pipeline
+/// actually emits.
+struct ProjectionSpec {
+    Projection               kind{Projection::Full};
+    std::vector<std::string> custom_fields;
+};
+
+/// Parse a projection name string into the enum. Returns false if
+/// `name` isn't one of the published projection names; the config
+/// parser uses this to validate forwarder projection at init.
+bool parse_projection_name(const std::string& name, Projection* out);
+
+/// Inverse — projection enum to its canonical wire name (matches
+/// the spec §4.3 list verbatim). Used when writing the
+/// `credentialSubject.projection` field.
+const char* projection_name(Projection p);
+
 /// Build the unsigned VC-2.0 envelope around the result JSON.
 /// Caller passes the JSON Pipeline::run returned. The function
 /// throws nlohmann::json::exception on malformed result JSON; the
@@ -52,10 +89,16 @@ constexpr const char* envelope_format() {
 /// timestamp in tests. In production, the binding passes the
 /// current UTC instant.
 ///
+/// `spec` controls what subset of the result lands in
+/// `credentialSubject.payload`. For backwards compatibility, the
+/// default is the `Full` projection.
+///
 /// Returns the serialised envelope. No "proof" block — 4b adds it.
-std::string build_envelope_unsigned(const Config& config,
-                                    const std::string& result_json,
-                                    const std::string& valid_from_iso8601_utc);
+std::string build_envelope_unsigned(
+    const Config& config,
+    const std::string& result_json,
+    const std::string& valid_from_iso8601_utc,
+    const ProjectionSpec& spec = ProjectionSpec{});
 
 /// ISO-8601 UTC timestamp helper. Format:
 /// "2026-05-25T12:34:56.789Z". Suitable for `validFrom` /

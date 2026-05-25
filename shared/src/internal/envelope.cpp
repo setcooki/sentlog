@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <ctime>
 #include <string>
+#include <string_view>
 
 namespace sentlog::internal {
 
@@ -16,7 +17,162 @@ using nlohmann::json;
 constexpr const char* kContextVcV2     = "https://www.w3.org/ns/credentials/v2";
 constexpr const char* kContextSentlog  = "https://sentlog.org/contexts/evidence/v1";
 
+// Walk a dotted JSON path (e.g. "transcript.text") and return the
+// node, or nullptr if any intermediate is missing.
+const json* walk_dotted(const json& root, std::string_view path) {
+    const json* cur = &root;
+    size_t pos = 0;
+    while (pos < path.size()) {
+        const size_t dot = path.find('.', pos);
+        const std::string segment(path.substr(pos, dot - pos));
+        if (!cur->is_object() || !cur->contains(segment)) return nullptr;
+        cur = &(*cur)[segment];
+        if (dot == std::string::npos) break;
+        pos = dot + 1;
+    }
+    return cur;
+}
+
+// Set a value at a dotted path, creating intermediate objects as
+// needed. Used by the Custom projection to rebuild a subset payload.
+void set_dotted(json& root, std::string_view path, const json& value) {
+    json* cur = &root;
+    size_t pos = 0;
+    while (pos < path.size()) {
+        const size_t dot = path.find('.', pos);
+        const std::string segment(path.substr(pos, dot - pos));
+        if (dot == std::string::npos) {
+            (*cur)[segment] = value;
+            return;
+        }
+        if (!cur->contains(segment) || !(*cur)[segment].is_object()) {
+            (*cur)[segment] = json::object();
+        }
+        cur = &(*cur)[segment];
+        pos = dot + 1;
+    }
+}
+
+// Helper: copy a top-level field from src to dst if present.
+void copy_if_present(const json& src, json& dst, const char* key) {
+    if (src.contains(key)) dst[key] = src[key];
+}
+
+// Apply a projection to the SentlogResult JSON and return the
+// payload subset that goes into credentialSubject.payload. The
+// projection name is recorded separately on the envelope itself —
+// this function only shapes the payload.
+//
+// "scores" in spec §4.3 means liveness, presence, direction,
+// confidence, thresholds_met, engagement — the numeric verdict
+// surface. diagnostics + model_versions + evidence_grade tag along
+// in projections that carry scores, since verifiers need them to
+// interpret the numbers.
+json project_payload(const json& result, const ProjectionSpec& spec) {
+    json out = json::object();
+
+    auto include_scores = [&]() {
+        copy_if_present(result, out, "liveness");
+        copy_if_present(result, out, "presence");
+        copy_if_present(result, out, "direction");
+        copy_if_present(result, out, "confidence");
+        copy_if_present(result, out, "thresholds_met");
+        copy_if_present(result, out, "engagement");
+        copy_if_present(result, out, "diagnostics");
+        copy_if_present(result, out, "schema_version");
+    };
+    auto include_transcript = [&](bool with_word_timings) {
+        if (!result.contains("transcript")) return;
+        if (with_word_timings) {
+            out["transcript"] = result["transcript"];
+        } else {
+            json t = json::object();
+            if (result["transcript"].contains("text"))
+                t["text"] = result["transcript"]["text"];
+            if (result["transcript"].contains("language"))
+                t["language"] = result["transcript"]["language"];
+            if (result["transcript"].contains("confidence"))
+                t["confidence"] = result["transcript"]["confidence"];
+            // No word_timings, no target_match in ScoresOnly.
+            out["transcript"] = std::move(t);
+        }
+    };
+    auto include_fingerprint = [&]() {
+        copy_if_present(result, out, "fingerprint");
+    };
+    // AudioClip — Phase 4g will populate this with Opus bytes. For
+    // now the projections that ask for a clip get an empty
+    // placeholder so the wire shape is stable.
+    auto include_clip_placeholder = [&]() {
+        json clip = json::object();
+        clip["codec"] = "opus";
+        clip["bytes"] = "";
+        clip["note"]  = "Opus encoding lands in Phase 4g; placeholder for shape stability";
+        out["audio_clip"] = std::move(clip);
+    };
+
+    switch (spec.kind) {
+        case Projection::Full:
+            // Everything from the result, minus audio_clip (the SDK
+            // doesn't compute one for Full — that's Full+AudioClip's
+            // job in 4g).
+            out = result;
+            break;
+        case Projection::FullPlusAudioClip:
+            out = result;
+            include_clip_placeholder();
+            break;
+        case Projection::ScoresOnly:
+            include_scores();
+            include_transcript(/* with_word_timings = */ false);
+            break;
+        case Projection::TranscriptOnly:
+            include_transcript(/* with_word_timings = */ true);
+            break;
+        case Projection::EvidenceFingerprint:
+            include_scores();
+            include_fingerprint();
+            break;
+        case Projection::EvidenceClip:
+            include_scores();
+            include_clip_placeholder();
+            break;
+        case Projection::Custom:
+            for (const auto& path : spec.custom_fields) {
+                if (const json* node = walk_dotted(result, path)) {
+                    set_dotted(out, path, *node);
+                }
+            }
+            break;
+    }
+    return out;
+}
+
 }  // namespace
+
+bool parse_projection_name(const std::string& name, Projection* out) {
+    if (name == "Full")                { *out = Projection::Full;                return true; }
+    if (name == "Full+AudioClip")      { *out = Projection::FullPlusAudioClip;   return true; }
+    if (name == "ScoresOnly")          { *out = Projection::ScoresOnly;          return true; }
+    if (name == "TranscriptOnly")      { *out = Projection::TranscriptOnly;      return true; }
+    if (name == "EvidenceFingerprint") { *out = Projection::EvidenceFingerprint; return true; }
+    if (name == "EvidenceClip")        { *out = Projection::EvidenceClip;        return true; }
+    if (name == "Custom")              { *out = Projection::Custom;              return true; }
+    return false;
+}
+
+const char* projection_name(Projection p) {
+    switch (p) {
+        case Projection::Full:                return "Full";
+        case Projection::FullPlusAudioClip:   return "Full+AudioClip";
+        case Projection::ScoresOnly:          return "ScoresOnly";
+        case Projection::TranscriptOnly:      return "TranscriptOnly";
+        case Projection::EvidenceFingerprint: return "EvidenceFingerprint";
+        case Projection::EvidenceClip:        return "EvidenceClip";
+        case Projection::Custom:              return "Custom";
+    }
+    return "Full";
+}
 
 std::string iso8601_utc_now() {
     using namespace std::chrono;
@@ -47,7 +203,8 @@ std::string iso8601_utc_now() {
 
 std::string build_envelope_unsigned(const Config& config,
                                     const std::string& result_json,
-                                    const std::string& valid_from_iso8601_utc) {
+                                    const std::string& valid_from_iso8601_utc,
+                                    const ProjectionSpec& spec) {
     // The result must be valid JSON — Pipeline::run only produces
     // well-formed JSON, so this is a programming-error path rather
     // than a hot one.
@@ -78,15 +235,12 @@ std::string build_envelope_unsigned(const Config& config,
         subject["companion_evidence_refs"] = config.companion_evidence_refs;
     }
 
-    // Phase 4a: only the "Full" projection is supported — the entire
-    // SentlogResult goes into payload. Other projections drop in
-    // here (4c) as the projection enum gains variants.
-    subject["projection"] = "Full";
-    subject["payload"]    = result_obj;
+    subject["projection"] = projection_name(spec.kind);
+    subject["payload"]    = project_payload(result_obj, spec);
 
     env["credentialSubject"] = std::move(subject);
 
-    // No "proof" block in 4a — 4b adds Ed25519 DataIntegrityProof.
+    // No "proof" block here — sign_envelope_eddsa_jcs adds it.
     // No "tsa_timestamp" — 4h adds the RFC 3161 hook.
 
     return env.dump();
