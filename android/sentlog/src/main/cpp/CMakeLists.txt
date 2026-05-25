@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 project(sentlog_jni
     VERSION 0.1.0
     DESCRIPTION "Sentlog JNI bridge"
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 set(CMAKE_CXX_STANDARD 17)
