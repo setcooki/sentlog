@@ -207,6 +207,26 @@ char* sentlog_model_versions(sentlog_handle_t* handle) {
     }
 }
 
+sentlog_status_t sentlog_set_signing_key(sentlog_handle_t* handle,
+                                         const uint8_t* secret_key_bytes,
+                                         size_t secret_key_len,
+                                         const char* verification_method) {
+    if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
+    if (verification_method == nullptr) return SENTLOG_ERR_INVALID_CONFIG;
+    return handle->state->set_signing_key(
+        secret_key_bytes, secret_key_len,
+        std::string(verification_method));
+}
+
+sentlog_status_t sentlog_set_envelope_dispatcher(
+    sentlog_handle_t* handle,
+    sentlog_envelope_dispatch_cb_t cb,
+    void* userdata) {
+    if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
+    handle->state->set_envelope_dispatcher(cb, userdata);
+    return SENTLOG_OK;
+}
+
 sentlog_status_t sentlog_check_for_updates(sentlog_handle_t* handle,
                                            sentlog_update_cb_t cb,
                                            void* userdata) {

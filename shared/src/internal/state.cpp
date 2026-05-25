@@ -2,7 +2,11 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstring>
+
+#include "internal/envelope.h"
 #include "internal/pipeline.h"
+#include "internal/signing.h"
 
 namespace sentlog::internal {
 
@@ -75,6 +79,13 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
                                          pushed_vad, pushed_liveness,
                                          pushed_transcript, pushed_motion,
                                          route);
+        // Phase 4d: dispatch envelopes for each configured forwarder
+        // BEFORE the per-state cleanup below. Failures inside
+        // dispatch_envelopes are absorbed (continue per forwarder)
+        // so a misbehaving sink doesn't take down evaluate.
+        if (!config_.forwarders.empty()) {
+            dispatch_envelopes(*result_json_out);
+        }
     } catch (...) {
         phase_.store(static_cast<int>(LifecyclePhase::Idle),
                      std::memory_order_release);
@@ -291,6 +302,110 @@ void State::emit_telemetry(const std::string& event_json) noexcept {
     if (telemetry_cb_ == nullptr) return;
     std::lock_guard<std::mutex> lock(telemetry_mutex_);
     telemetry_cb_(event_json.c_str(), telemetry_userdata_);
+}
+
+// --- Phase 4d: signing + dispatch --------------------------------
+
+sentlog_status_t State::set_signing_key(const uint8_t* secret_key_bytes,
+                                        size_t secret_key_len,
+                                        const std::string& verification_method) {
+    if (secret_key_bytes == nullptr ||
+        secret_key_len != kEd25519SecretKeyBytes) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    std::memcpy(signing_key_.data(), secret_key_bytes, kEd25519SecretKeyBytes);
+    verification_method_ = verification_method;
+    has_signing_key_     = true;
+    return SENTLOG_OK;
+}
+
+bool State::has_signing_key() const noexcept {
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    return has_signing_key_;
+}
+
+const std::array<uint8_t, 64>& State::signing_key() const noexcept {
+    // Caller holds the design contract that signing_mutex_ doesn't
+    // need to be locked here — the array is byte-stable for the
+    // handle's lifetime once set_signing_key returned OK.
+    return signing_key_;
+}
+
+const std::string& State::verification_method() const noexcept {
+    return verification_method_;
+}
+
+void State::set_envelope_dispatcher(sentlog_envelope_dispatch_cb_t cb,
+                                    void* userdata) noexcept {
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    envelope_dispatcher_         = cb;
+    envelope_dispatcher_userdata_ = userdata;
+}
+
+void State::dispatch_envelopes(const std::string& result_json) {
+    // Snapshot the dispatcher under lock so we don't fire against
+    // a half-cleared field after a concurrent destroy.
+    sentlog_envelope_dispatch_cb_t cb       = nullptr;
+    void*                          cb_data  = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(signing_mutex_);
+        cb      = envelope_dispatcher_;
+        cb_data = envelope_dispatcher_userdata_;
+    }
+
+    const std::string valid_from = iso8601_utc_now();
+    for (const auto& fw : config_.forwarders) {
+        Projection projection = Projection::Full;
+        // Forwarder.projection was validated at parse_config time;
+        // parse_projection_name only fails if someone hand-mutated
+        // the struct, so the false branch is genuinely defensive.
+        if (!parse_projection_name(fw.projection, &projection)) continue;
+
+        ProjectionSpec spec;
+        spec.kind = projection;
+        // Custom-projection field list lands in 4f when Forwarder
+        // gains a custom_fields member; today projection=="Custom"
+        // routes through with an empty field list and produces an
+        // empty payload — telemetry rather than a malformed envelope.
+
+        std::string envelope_json;
+        try {
+            envelope_json = build_envelope_unsigned(
+                config_, result_json, valid_from, spec);
+            if (has_signing_key()) {
+                std::lock_guard<std::mutex> lock(signing_mutex_);
+                envelope_json = sign_envelope_eddsa_jcs(
+                    envelope_json,
+                    signing_key_,
+                    verification_method_,
+                    valid_from);
+            }
+        } catch (...) {
+            // Don't let envelope construction take down evaluate.
+            // A real implementation would emit a telemetry event;
+            // 4d ships the silent-skip path and 4f adds telemetry.
+            continue;
+        }
+
+        if (fw.sink_kind == "local_queue") {
+            // C++-side handler lands in 4d2 (file I/O). For 4d1 the
+            // local-queue sink is a no-op so the dispatcher path
+            // can be tested in isolation.
+            continue;
+        }
+
+        if (cb != nullptr) {
+            cb(fw.name.c_str(),
+               fw.sink_kind.c_str(),
+               fw.sink_json.c_str(),
+               envelope_json.c_str(),
+               cb_data);
+        }
+        // Without a registered dispatcher, non-local-queue sinks
+        // are silently skipped — the integrator hasn't told us
+        // where to send.
+    }
 }
 
 }  // namespace sentlog::internal

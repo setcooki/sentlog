@@ -72,6 +72,21 @@ internal object NativeBridge {
     @JvmStatic external fun nativeGetCapabilities(handle: Long): String?
     @JvmStatic external fun nativeModelVersions(handle: Long): String?
     @JvmStatic external fun nativeCheckForUpdates(handle: Long, updateCb: UpdateCallback): Int
+
+    /** Phase 4d: install (or replace, when [secretKey] != null) the
+     *  Ed25519 secret key the SDK uses to sign envelopes. The key is
+     *  the 64-byte RFC 8032 seed||pubkey concatenation; obtain it
+     *  from libsodium / NaCl / a hardware-backed keystore. */
+    @JvmStatic external fun nativeSetSigningKey(
+        handle: Long, secretKey: ByteArray, verificationMethod: String,
+    ): Int
+
+    /** Phase 4d: install (or clear, when [dispatcher] == null) the
+     *  per-handle envelope dispatcher invoked once per non-local-queue
+     *  forwarder after evaluate. */
+    @JvmStatic external fun nativeSetEnvelopeDispatcher(
+        handle: Long, dispatcher: EnvelopeDispatcher?,
+    ): Int
 }
 
 /** Invoked by JNI on the SDK's I/O thread. */
@@ -87,4 +102,17 @@ internal abstract class ResultCallback {
 /** Invoked by JNI once per [NativeBridge.nativeCheckForUpdates] call. */
 internal abstract class UpdateCallback {
     abstract fun onUpdate(status: Int, updateJson: String?)
+}
+
+/** Invoked by JNI once per non-local-queue forwarder after evaluate.
+ *  Long-lived: the SDK never releases the GlobalRef so the dispatcher
+ *  remains callable until [NativeBridge.nativeSetEnvelopeDispatcher]
+ *  is invoked with null. */
+internal abstract class EnvelopeDispatcher {
+    abstract fun onEnvelope(
+        forwarderName: String,
+        sinkKind: String,
+        sinkJson: String,
+        envelopeJson: String,
+    )
 }

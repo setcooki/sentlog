@@ -14,8 +14,10 @@
 #ifndef SENTLOG_INTERNAL_STATE_H
 #define SENTLOG_INTERNAL_STATE_H
 
+#include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -151,6 +153,34 @@ public:
     /// Snapshot the pushed motion frames for pipeline consumption.
     std::vector<PushedMotionFrame> snapshot_motion_frames() const;
 
+    // --- Phase 4d: signing + forwarder dispatch -------------------
+
+    /// Register an Ed25519 secret key (64 bytes, RFC 8032
+    /// seed||pubkey) the SDK uses to sign envelopes. The
+    /// `verification_method` is copied into proof.verificationMethod.
+    /// Returns INVALID_CONFIG if the length isn't 64.
+    sentlog_status_t set_signing_key(const uint8_t* secret_key_bytes,
+                                     size_t secret_key_len,
+                                     const std::string& verification_method);
+
+    /// True if a signing key was registered. Pipeline-side
+    /// dispatcher checks this before signing the envelope.
+    bool has_signing_key() const noexcept;
+
+    /// Internal accessors for the forwarder dispatcher.
+    const std::array<uint8_t, 64>& signing_key() const noexcept;
+    const std::string& verification_method() const noexcept;
+
+    /// Register the envelope dispatcher invoked once per non-
+    /// local-queue forwarder.
+    void set_envelope_dispatcher(sentlog_envelope_dispatch_cb_t cb,
+                                 void* userdata) noexcept;
+
+    /// Dispatch envelopes to the registered dispatcher (and write
+    /// local-queue forwarders to file). Called from State::evaluate
+    /// after the result JSON is assembled.
+    void dispatch_envelopes(const std::string& result_json);
+
     /// Non-destructive copy of the audio ring buffer contents into
     /// `out`. Returns the number of samples written. Safe to call
     /// concurrently with push_audio.
@@ -214,6 +244,15 @@ private:
 
     mutable std::mutex motion_mutex_;
     std::vector<PushedMotionFrame> pushed_motion_frames_;
+
+    // Phase 4d signing + dispatch state. Lifetimes are tied to the
+    // sentlog_handle; the integrator clears these by destroy().
+    mutable std::mutex signing_mutex_;
+    bool                                         has_signing_key_{false};
+    std::array<uint8_t, 64>                      signing_key_{};
+    std::string                                  verification_method_;
+    sentlog_envelope_dispatch_cb_t               envelope_dispatcher_{nullptr};
+    void*                                        envelope_dispatcher_userdata_{nullptr};
 
     /// Default: UNKNOWN. The platform binding pushes the real route
     /// at startCapture; integrators that never push see audio_source

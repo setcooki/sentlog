@@ -1089,3 +1089,177 @@ TEST(PipelineTest, NoRoutePushedDefaultsToZero) {
 
     sentlog_destroy(h);
 }
+
+// --- Phase 4d1: forwarder dispatch ---
+
+namespace {
+struct DispatchCapture {
+    std::vector<std::string> forwarder_names;
+    std::vector<std::string> sink_kinds;
+    std::vector<std::string> envelope_jsons;
+};
+void on_dispatch(const char* forwarder_name,
+                 const char* sink_kind,
+                 const char* /*sink_json*/,
+                 const char* envelope_json,
+                 void* userdata) {
+    auto* cap = static_cast<DispatchCapture*>(userdata);
+    cap->forwarder_names.push_back(forwarder_name ? forwarder_name : "");
+    cap->sink_kinds.push_back(sink_kind ? sink_kind : "");
+    cap->envelope_jsons.push_back(envelope_json ? envelope_json : "");
+}
+}  // namespace
+
+TEST(PipelineTest, ForwarderDispatcherFiresOncePerCallbackSink) {
+    const char* cfg = R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "primary",   "projection": "Full",
+              "sink": { "kind": "callback", "endpoint": "ignored" } },
+            { "name": "secondary", "projection": "ScoresOnly",
+              "sink": { "kind": "callback", "endpoint": "ignored" } }
+        ]
+    })";
+    sentlog_status_t s;
+    auto* h = sentlog_create(cfg, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &on_dispatch, &dcap),
+              SENTLOG_OK);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+
+    ASSERT_EQ(dcap.forwarder_names.size(), 2u);
+    EXPECT_EQ(dcap.forwarder_names[0], "primary");
+    EXPECT_EQ(dcap.forwarder_names[1], "secondary");
+    EXPECT_EQ(dcap.sink_kinds[0],      "callback");
+    EXPECT_EQ(dcap.sink_kinds[1],      "callback");
+
+    // Per-projection shape sanity: secondary should be ScoresOnly,
+    // i.e. no fingerprint in the payload.
+    const json secondary = json::parse(dcap.envelope_jsons[1]);
+    EXPECT_EQ(secondary["credentialSubject"]["projection"], "ScoresOnly");
+    EXPECT_FALSE(secondary["credentialSubject"]["payload"].contains("fingerprint"));
+
+    // No signing key registered → envelopes are unsigned.
+    EXPECT_FALSE(secondary.contains("proof"));
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, ForwarderDispatcherWithSigningKeyAddsProof) {
+    const char* cfg = R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "primary", "projection": "Full",
+              "sink": { "kind": "callback", "endpoint": "ignored" } }
+        ]
+    })";
+    sentlog_status_t s;
+    auto* h = sentlog_create(cfg, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    // RFC 8032 §7.1 test vector 1 seed||pubkey — see signing_test.cpp.
+    const uint8_t kSk[64] = {
+        0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60,
+        0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c, 0xc4,
+        0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19,
+        0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae, 0x7f, 0x60,
+        0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7,
+        0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07, 0x3a,
+        0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25,
+        0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a,
+    };
+    ASSERT_EQ(sentlog_set_signing_key(h, kSk, 64, "did:key:zTest"),
+              SENTLOG_OK);
+
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &on_dispatch, &dcap),
+              SENTLOG_OK);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+
+    ASSERT_EQ(dcap.envelope_jsons.size(), 1u);
+    const json env = json::parse(dcap.envelope_jsons[0]);
+    ASSERT_TRUE(env.contains("proof"));
+    EXPECT_EQ(env["proof"]["cryptosuite"],        "eddsa-jcs-2022");
+    EXPECT_EQ(env["proof"]["verificationMethod"], "did:key:zTest");
+    EXPECT_FALSE(env["proof"]["proofValue"].get<std::string>().empty());
+
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, ForwarderDispatcherSkipsLocalQueueForNow) {
+    // 4d2 hooks the C++-side file writer in; 4d1's dispatcher must
+    // simply skip local_queue forwarders rather than mis-route them
+    // through the callback path.
+    const char* cfg = R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "queue", "projection": "Full",
+              "sink": { "kind": "local_queue", "path": "/tmp/ignored" } }
+        ]
+    })";
+    sentlog_status_t s;
+    auto* h = sentlog_create(cfg, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &on_dispatch, &dcap),
+              SENTLOG_OK);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    EXPECT_TRUE(dcap.forwarder_names.empty())
+        << "local_queue forwarders shouldn't reach the dispatcher; "
+           "they land in 4d2's C++-side file writer";
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, NoDispatcherRegisteredSkipsForwarderQuietly) {
+    const char* cfg = R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "primary", "projection": "Full",
+              "sink": { "kind": "callback", "endpoint": "ignored" } }
+        ]
+    })";
+    sentlog_status_t s;
+    auto* h = sentlog_create(cfg, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    Capture cap;
+    // No dispatcher registered — must still succeed.
+    EXPECT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, SetSigningKeyRejectsWrongLength) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    const uint8_t k[32] = {0};
+    EXPECT_EQ(sentlog_set_signing_key(h, k, 32, "did:key:x"),
+              SENTLOG_ERR_INVALID_CONFIG);
+    sentlog_destroy(h);
+}

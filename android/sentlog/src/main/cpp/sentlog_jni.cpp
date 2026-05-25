@@ -135,6 +135,26 @@ void on_telemetry(const char* event_json, void* userdata) {
     });
 }
 
+void on_envelope_dispatch(const char* forwarder_name,
+                          const char* sink_kind,
+                          const char* sink_json,
+                          const char* envelope_json,
+                          void* userdata) {
+    auto* cb = static_cast<GlobalCallback*>(userdata);
+    with_jni_env([&](JNIEnv* env) {
+        jstring n = env->NewStringUTF(forwarder_name ? forwarder_name : "");
+        jstring k = env->NewStringUTF(sink_kind      ? sink_kind      : "");
+        jstring s = env->NewStringUTF(sink_json      ? sink_json      : "");
+        jstring e = env->NewStringUTF(envelope_json  ? envelope_json  : "");
+        env->CallVoidMethod(cb->ref, cb->method, n, k, s, e);
+        env->DeleteLocalRef(n);
+        env->DeleteLocalRef(k);
+        env->DeleteLocalRef(s);
+        env->DeleteLocalRef(e);
+        // long-lived; do NOT delete the global ref.
+    });
+}
+
 }  // namespace
 
 extern "C" {
@@ -383,6 +403,59 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeModelVersions(
     jstring js = env->NewStringUTF(m);
     sentlog_string_free(m);
     return js;
+}
+
+JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativeSetSigningKey(
+    JNIEnv* env, jclass /*clazz*/, jlong handle,
+    jbyteArray secret_key_bytes, jstring verification_method) {
+
+    if (secret_key_bytes == nullptr || verification_method == nullptr) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
+    const jsize n = env->GetArrayLength(secret_key_bytes);
+    auto* bytes = env->GetByteArrayElements(secret_key_bytes, nullptr);
+    if (bytes == nullptr) return SENTLOG_ERR_INTERNAL;
+    const char* vm = env->GetStringUTFChars(verification_method, nullptr);
+    if (vm == nullptr) {
+        env->ReleaseByteArrayElements(secret_key_bytes, bytes, JNI_ABORT);
+        return SENTLOG_ERR_INTERNAL;
+    }
+    const jint rc = static_cast<jint>(sentlog_set_signing_key(
+        native_from_jlong(handle),
+        reinterpret_cast<const uint8_t*>(bytes),
+        static_cast<size_t>(n),
+        vm));
+    env->ReleaseStringUTFChars(verification_method, vm);
+    env->ReleaseByteArrayElements(secret_key_bytes, bytes, JNI_ABORT);
+    return rc;
+}
+
+JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativeSetEnvelopeDispatcher(
+    JNIEnv* env, jclass /*clazz*/, jlong handle, jobject dispatcher_obj) {
+
+    if (dispatcher_obj == nullptr) {
+        // Clear the registration.
+        return static_cast<jint>(sentlog_set_envelope_dispatcher(
+            native_from_jlong(handle), nullptr, nullptr));
+    }
+    const jclass cb_cls = env->GetObjectClass(dispatcher_obj);
+    const jmethodID m = env->GetMethodID(
+        cb_cls, "onEnvelope",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+    env->DeleteLocalRef(cb_cls);
+    if (m == nullptr) return SENTLOG_ERR_INTERNAL;
+
+    auto* userdata = new GlobalCallback{
+        env->NewGlobalRef(dispatcher_obj), m};
+    const jint rc = static_cast<jint>(sentlog_set_envelope_dispatcher(
+        native_from_jlong(handle), &on_envelope_dispatch, userdata));
+    if (rc != SENTLOG_OK) {
+        env->DeleteGlobalRef(userdata->ref);
+        delete userdata;
+    }
+    return rc;
 }
 
 JNIEXPORT jint JNICALL

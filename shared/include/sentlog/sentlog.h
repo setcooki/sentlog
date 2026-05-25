@@ -108,6 +108,32 @@ typedef void (*sentlog_telemetry_cb_t)(
     const char* event_json,
     void* userdata);
 
+/* Per-envelope dispatch callback. Fires once per configured forwarder
+ * after sentlog_evaluate completes, for any sink_kind the C++ core
+ * doesn't itself dispatch (everything except "local_queue", which
+ * the core writes to a file directly).
+ *
+ *   forwarder_name  The name from SentlogConfig.forwarders[i].name
+ *                   — opaque to the SDK, integrator-supplied.
+ *   sink_kind       "http" | "webhook" | "callback".
+ *   sink_json       The sink-specific configuration as JSON
+ *                   (URL, headers, HMAC params, etc.). Parse on the
+ *                   binding side.
+ *   envelope_json   The signed W3C VC 2.0 envelope, ready to ship.
+ *                   Null-terminated. The integrator owns no memory;
+ *                   the buffer is valid only for the duration of the
+ *                   callback.
+ *
+ * The callback runs on the SDK's I/O thread (the same thread that
+ * delivers sentlog_result_cb_t). Long-running work — HTTP POSTs,
+ * etc. — should hand off to the binding's own scheduling. */
+typedef void (*sentlog_envelope_dispatch_cb_t)(
+    const char* forwarder_name,
+    const char* sink_kind,
+    const char* sink_json,
+    const char* envelope_json,
+    void* userdata);
+
 /* --------------------------------------------------------------------
  * Lifecycle
  * ----------------------------------------------------------------- */
@@ -316,6 +342,39 @@ char* sentlog_get_capabilities(sentlog_handle_t* handle);
 
 /* Versions of loaded models and the OTA manifest. Schema: §3.2. */
 char* sentlog_model_versions(sentlog_handle_t* handle);
+
+/* --------------------------------------------------------------------
+ * Forwarder dispatch (Phase 4)
+ * ----------------------------------------------------------------- */
+
+/* Register the integrator-supplied Ed25519 signing key the SDK uses
+ * to populate the W3C VC 2.0 envelope's `proof` block. The key is
+ * the 64-byte RFC 8032 seed||pubkey concatenation; the binding
+ * obtains this from libsodium / NaCl / a hardware-backed keystore.
+ *
+ *   verification_method  String written into proof.verificationMethod
+ *                        (typically a `did:key:` URI the integrator's
+ *                        verifier resolves to the public key).
+ *
+ * Without a registered key, envelopes are emitted unsigned (no proof
+ * block). Hardware-backed signing lands in Phase 7 alongside
+ * ecdsa-jcs-2019. */
+sentlog_status_t sentlog_set_signing_key(
+    sentlog_handle_t* handle,
+    const uint8_t* secret_key_bytes,
+    size_t          secret_key_len,
+    const char*     verification_method);
+
+/* Register the per-handle envelope dispatcher. Fires once per
+ * configured forwarder after evaluate, EXCEPT for forwarders with
+ * sink_kind = "local_queue" which the C++ core writes to a file
+ * itself (Phase 4d2). Without a registered dispatcher, http /
+ * webhook / callback forwarders are silently skipped — the binding
+ * is responsible for the actual network or in-process delivery. */
+sentlog_status_t sentlog_set_envelope_dispatcher(
+    sentlog_handle_t* handle,
+    sentlog_envelope_dispatch_cb_t cb,
+    void* userdata);
 
 /* --------------------------------------------------------------------
  * OTA
