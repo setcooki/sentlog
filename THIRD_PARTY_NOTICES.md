@@ -155,6 +155,7 @@ required by the respective licence; this file carries attribution.
 | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) | On-device ASR | MIT |
 | [ggml](https://github.com/ggerganov/ggml) | ML kernels backing whisper.cpp | MIT |
 | [Silero VAD](https://github.com/snakers4/silero-vad) | Voice activity detection | MIT |
+| [tweetnacl](https://tweetnacl.cr.yp.to/) | Ed25519 signing for the VC 2.0 envelope's DataIntegrityProof (Phase 4b). Vendored at `shared/external/tweetnacl/`; see `shared/external/tweetnacl/VERSION.md`. | Public domain |
 | [MediaPipe Face Mesh](https://github.com/google/mediapipe) | Face landmark detection (Android, affect mode) | Apache-2.0 |
 | Apple Vision framework | Face landmark detection (iOS, affect mode) | Apple system framework |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON parsing and serialisation in the C++ core | MIT |

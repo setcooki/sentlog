@@ -327,9 +327,14 @@ bool State::has_signing_key() const noexcept {
 }
 
 const std::array<uint8_t, 64>& State::signing_key() const noexcept {
-    // Caller holds the design contract that signing_mutex_ doesn't
-    // need to be locked here — the array is byte-stable for the
-    // handle's lifetime once set_signing_key returned OK.
+    // Caller must hold signing_mutex_ for the duration of any read
+    // that hands the key to a signer — set_signing_key can be
+    // called at any time after construction, so back-to-back
+    // set + concurrent evaluate would otherwise race on
+    // signing_key_. dispatch_envelopes serialises by holding the
+    // lock across both has_signing_key() and the actual sign call;
+    // this getter is unguarded but only used inside that locked
+    // region.
     return signing_key_;
 }
 
@@ -345,14 +350,25 @@ void State::set_envelope_dispatcher(sentlog_envelope_dispatch_cb_t cb,
 }
 
 void State::dispatch_envelopes(const std::string& result_json) {
-    // Snapshot the dispatcher under lock so we don't fire against
-    // a half-cleared field after a concurrent destroy.
-    sentlog_envelope_dispatch_cb_t cb       = nullptr;
-    void*                          cb_data  = nullptr;
+    // Snapshot the dispatcher + signing material under the lock so
+    // we don't fire against half-cleared state after a concurrent
+    // destroy or set_*. Copying ~96 bytes of crypto material is
+    // cheap; the alternative is holding the lock across user code
+    // (the cb) which is a deadlock invitation.
+    sentlog_envelope_dispatch_cb_t cb        = nullptr;
+    void*                          cb_data   = nullptr;
+    bool                           sign      = false;
+    std::array<uint8_t, 64>        snap_key{};
+    std::string                    snap_vm;
     {
         std::lock_guard<std::mutex> lock(signing_mutex_);
-        cb      = envelope_dispatcher_;
-        cb_data = envelope_dispatcher_userdata_;
+        cb       = envelope_dispatcher_;
+        cb_data  = envelope_dispatcher_userdata_;
+        sign     = has_signing_key_;
+        if (sign) {
+            snap_key = signing_key_;
+            snap_vm  = verification_method_;
+        }
     }
 
     const std::string valid_from = iso8601_utc_now();
@@ -374,13 +390,9 @@ void State::dispatch_envelopes(const std::string& result_json) {
         try {
             envelope_json = build_envelope_unsigned(
                 config_, result_json, valid_from, spec);
-            if (has_signing_key()) {
-                std::lock_guard<std::mutex> lock(signing_mutex_);
+            if (sign) {
                 envelope_json = sign_envelope_eddsa_jcs(
-                    envelope_json,
-                    signing_key_,
-                    verification_method_,
-                    valid_from);
+                    envelope_json, snap_key, snap_vm, valid_from);
             }
         } catch (...) {
             // Don't let envelope construction take down evaluate.

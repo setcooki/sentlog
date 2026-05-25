@@ -8,8 +8,9 @@
  *
  * Design constraints (see docs/technical-specification.md):
  *
- *   - The surface is under ~20 functions plus opaque handles. No exposed
- *     structs. AI-coded FFI bindings are only tractable at this size.
+ *   - The surface is around two dozen functions plus opaque handles.
+ *     No exposed structs. AI-coded FFI bindings are only tractable
+ *     at this size.
  *   - Result and config data crosses the boundary as JSON strings to
  *     keep the ABI flat. Binary fields inside the JSON (audio
  *     fingerprint, signed envelope proof) are base64-encoded by the

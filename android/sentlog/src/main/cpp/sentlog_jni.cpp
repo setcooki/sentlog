@@ -47,6 +47,7 @@ struct GlobalCallback {
 struct JniHandle {
     sentlog_handle_t* native;       // owned
     GlobalCallback*   telemetry;    // owned, may be null
+    GlobalCallback*   dispatcher;   // owned, may be null
 };
 
 // Attach the current thread to the JVM if needed and run the supplied
@@ -147,6 +148,17 @@ void on_envelope_dispatch(const char* forwarder_name,
         jstring s = env->NewStringUTF(sink_json      ? sink_json      : "");
         jstring e = env->NewStringUTF(envelope_json  ? envelope_json  : "");
         env->CallVoidMethod(cb->ref, cb->method, n, k, s, e);
+        // The dispatcher fires inside a loop over configured forwarders.
+        // If the integrator's Kotlin dispatcher throws, the JVM leaves
+        // the exception pending and the next JNI call inside the same
+        // dispatch loop would assert/crash. Clear it (and log a tag the
+        // integrator can grep). Exception lifetime + telemetry hook
+        // lands in 4f.
+        if (env->ExceptionCheck()) {
+            LOGE("envelope dispatcher threw; clearing to keep the loop alive");
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+        }
         env->DeleteLocalRef(n);
         env->DeleteLocalRef(k);
         env->DeleteLocalRef(s);
@@ -216,7 +228,7 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeCreate(
         return 0;
     }
 
-    auto* j = new JniHandle{native, telemetry_userdata};
+    auto* j = new JniHandle{native, telemetry_userdata, nullptr};
     return jlong_from_jni(j);
 }
 
@@ -229,6 +241,10 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeDestroy(
     if (j->telemetry != nullptr) {
         env->DeleteGlobalRef(j->telemetry->ref);
         delete j->telemetry;
+    }
+    if (j->dispatcher != nullptr) {
+        env->DeleteGlobalRef(j->dispatcher->ref);
+        delete j->dispatcher;
     }
     delete j;
 }
@@ -435,11 +451,23 @@ JNIEXPORT jint JNICALL
 Java_me_cooki_sentlog_internal_NativeBridge_nativeSetEnvelopeDispatcher(
     JNIEnv* env, jclass /*clazz*/, jlong handle, jobject dispatcher_obj) {
 
+    JniHandle* j = jni_from_jlong(handle);
+    if (j == nullptr) return SENTLOG_ERR_INVALID_STATE;
+
     if (dispatcher_obj == nullptr) {
-        // Clear the registration.
-        return static_cast<jint>(sentlog_set_envelope_dispatcher(
-            native_from_jlong(handle), nullptr, nullptr));
+        // Clear the registration: unregister at the C ABI first so the
+        // native side stops calling our trampoline, then free the
+        // previously-tracked GlobalCallback.
+        const jint rc = static_cast<jint>(sentlog_set_envelope_dispatcher(
+            j->native, nullptr, nullptr));
+        if (j->dispatcher != nullptr) {
+            env->DeleteGlobalRef(j->dispatcher->ref);
+            delete j->dispatcher;
+            j->dispatcher = nullptr;
+        }
+        return rc;
     }
+
     const jclass cb_cls = env->GetObjectClass(dispatcher_obj);
     const jmethodID m = env->GetMethodID(
         cb_cls, "onEnvelope",
@@ -450,11 +478,20 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeSetEnvelopeDispatcher(
     auto* userdata = new GlobalCallback{
         env->NewGlobalRef(dispatcher_obj), m};
     const jint rc = static_cast<jint>(sentlog_set_envelope_dispatcher(
-        native_from_jlong(handle), &on_envelope_dispatch, userdata));
+        j->native, &on_envelope_dispatch, userdata));
     if (rc != SENTLOG_OK) {
         env->DeleteGlobalRef(userdata->ref);
         delete userdata;
+        return rc;
     }
+    // Replace any prior registration. The C ABI now owns the new
+    // userdata; the old one is unreferenced from the native side and
+    // safe to free.
+    if (j->dispatcher != nullptr) {
+        env->DeleteGlobalRef(j->dispatcher->ref);
+        delete j->dispatcher;
+    }
+    j->dispatcher = userdata;
     return rc;
 }
 

@@ -40,7 +40,7 @@ Companion documents:
 | 1.22 | **The output is evidence, not a verdict** | Public framing centres on durable, verifiable evidence. The SDK does not claim "this is a real human" — it produces evidence the integrator interprets. |
 | 1.23 | **`Presence.summary` and `evidence_grade` are first-class fields** | `Presence.summary` ensembles the populated `presence` sub-fields. `evidence_grade` declares the assurance level so downstream consumers can apply differential trust. |
 | 1.24 | **Envelope wire format is locked with explicit `envelope_format` versioning** | The envelope is the durable evidence artefact, verified by tools that may have only the envelope and a public key. Wire-format guarantees in §6.4. Reference verifier ships in `tools/evidence-verifier/`. |
-| 1.25 | **Envelope conforms to the W3C Verifiable Credentials 2.0 data model** | `@context`, `type`, `issuer`, `validFrom`, `credentialSubject`, `proof` follow VC 2.0. Proof uses `DataIntegrityProof` with `eddsa-rdfc-2022` or `ecdsa-rdfc-2019`. Integrator supplies `issuer` at init. |
+| 1.25 | **Envelope conforms to the W3C Verifiable Credentials 2.0 data model** | `@context`, `type`, `issuer`, `validFrom`, `credentialSubject`, `proof` follow VC 2.0. Proof uses `DataIntegrityProof` with `eddsa-jcs-2022` (software signing — Phase 4b) or `ecdsa-jcs-2019` (hardware-backed — Phase 7). JCS canonicalisation (RFC 8785) instead of RDFC because the latter requires a ~5000-line URDNA2015 implementation with no small embedded variant worth vendoring; both are W3C-registered DataIntegrity cryptosuites. Integrator supplies `issuer` at init. |
 | 1.26 | **Optional RFC 3161 TSA timestamp** | When the integrator sets `SentlogConfig.tsa_endpoint`, the SDK requests an authoritative timestamp over the envelope hash and embeds the response as `tsa_timestamp`. Default null preserves inert-by-default. |
 | 1.27 | **Hardware-backed signing supported in v1.0** | iOS Secure Enclave (ECDSA-P256); Android KeyStore Ed25519 (API 33+) or ECDSA-P256 (API 31–32) with StrongBox. Opt-in via `use_hardware_signing`. When successful, `evidence_grade = EnclaveSigned`. |
 | 1.28 | **`@sentlog/web` (browser WASM) is post-v1.0** | Same C++ core compiled via Emscripten, plus a TypeScript surface mirroring `@sentlog/capacitor`. Tracked as a defined post-MVP deliverable. |
@@ -402,11 +402,18 @@ Sink ∈ {
 
     LocalQueueSink {
         path:           String
-        max_size_bytes: Int = 10_000_000
+        // max_size_bytes is reserved for a future chunk; today the
+        // queue file grows unbounded and integrators are responsible
+        // for rotation.
     }
 
     CallbackSink {
-        callback: (Projected) -> Unit
+        // No sink-side fields. Dispatch happens through a single
+        // per-handle callback the binding registers via
+        // sentlog_set_envelope_dispatcher(). The same dispatcher
+        // also receives http/webhook envelopes; the binding switches
+        // on sink_kind to route. The C++ core never invokes
+        // sink-specific closures.
     }
 }
 ```
@@ -462,7 +469,7 @@ model:
   },
   "proof": {
     "type":               "DataIntegrityProof",
-    "cryptosuite":        "eddsa-rdfc-2022",         // or "ecdsa-rdfc-2019" for hardware
+    "cryptosuite":        "eddsa-jcs-2022",          // or "ecdsa-jcs-2019" for hardware (Phase 7)
     "created":            "2026-05-22T12:34:56.789Z",
     "verificationMethod": "<integrator-supplied key id>",
     "proofPurpose":       "assertionMethod",
@@ -567,12 +574,12 @@ states this explicitly.
 - Optional **hardware-backed signing** via `use_hardware_signing`:
   - **iOS:** signing key generated in the Secure Enclave on first run;
     private key never leaves the SE. Algorithm: ECDSA-P256. Proof
-    cryptosuite: `ecdsa-rdfc-2019`.
+    cryptosuite: `ecdsa-jcs-2019`.
   - **Android API 33+:** KeyStore-backed Ed25519 with
     `setIsStrongBoxBacked(true)` where the chipset supports it.
-    Proof cryptosuite: `eddsa-rdfc-2022`.
+    Proof cryptosuite: `eddsa-jcs-2022`.
   - **Android API 31–32:** KeyStore-backed ECDSA-P256 with StrongBox.
-    Proof cryptosuite: `ecdsa-rdfc-2019`.
+    Proof cryptosuite: `ecdsa-jcs-2019`.
   - **Fallback:** when hardware-backed key creation fails (older
     devices, denied permission, hardware unavailable), the SDK falls
     back to a software Ed25519 key, emits a
@@ -586,7 +593,7 @@ states this explicitly.
 
 - ASan + UBSan on every C++ PR. MSan on nightly.
 - Golden-fixture coverage (~50 clips) on every PR.
-- Narrow C ABI: under ~20 functions, opaque handles only.
+- Narrow C ABI: around two dozen functions, opaque handles only.
 - ≥72h soak before each release.
 
 ### 5.7 Demographic bias acknowledgement

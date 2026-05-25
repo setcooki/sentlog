@@ -56,8 +56,8 @@ sentlog/
 ## Package boundaries
 
 - **`shared/`** is C++17 only. Its public surface is a narrow C ABI in
-  `shared/include/sentlog/sentlog.h` — under ~20 functions plus opaque
-  handles. Nothing else crosses the boundary. Score assembly,
+  `shared/include/sentlog/sentlog.h` — around two dozen functions
+  plus opaque handles. Nothing else crosses the boundary. Score assembly,
   fingerprint computation, scoring math, and ML kernel orchestration
   live here.
 - **`android/` and `ios/`** are the thick bindings. Capture
@@ -123,7 +123,7 @@ Don't violate them without flagging.
    is via explicit `checkForUpdates()`. The SDK runs when called,
    returns when done, and is silent otherwise.
 2. **Narrow C ABI.** The C header in `shared/include/sentlog/` exposes
-   under twenty functions with opaque handles. No exposed structs.
+   around two dozen functions with opaque handles. No exposed structs.
    AI-coded FFI bindings are tractable only at this surface size.
 3. **Raw [0,1] scores.** All score fields are unmodified probability
    outputs. No SDK-side calibration, no capping. `thresholds_met` is

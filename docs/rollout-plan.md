@@ -130,7 +130,7 @@ integration test.
 - **VC 2.0 envelope construction** per the spec. Envelope built with
   `@context`, `type`, `issuer`, `credentialSubject`, `proof` populated
   for every forwarder.
-- Software Ed25519 `DataIntegrityProof` (`eddsa-rdfc-2022`) for
+- Software Ed25519 `DataIntegrityProof` (`eddsa-jcs-2022`) for
   `HttpSink`; HMAC-SHA256 for `WebhookSink` with configurable header
   name and signature format. Hardware-backed proof variants land in
   Phase 7.
