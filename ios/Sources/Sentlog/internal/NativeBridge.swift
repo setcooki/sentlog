@@ -38,6 +38,17 @@ internal enum NativeBridge {
         let onEvent: (String) -> Void
         init(_ f: @escaping (String) -> Void) { onEvent = f }
     }
+
+    /// A long-lived box for the envelope dispatcher (Phase 4d).
+    /// Owned by Sentlog until the integrator replaces or clears the
+    /// dispatcher; the C ABI side holds the matching Unmanaged
+    /// pointer.
+    final class DispatcherBox {
+        let onEnvelope: (String, String, String, String) -> Void
+        init(_ f: @escaping (String, String, String, String) -> Void) {
+            onEnvelope = f
+        }
+    }
 }
 
 /// Strongly-typed error produced by the SDK. Maps to the

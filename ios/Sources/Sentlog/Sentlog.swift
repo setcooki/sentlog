@@ -30,6 +30,7 @@ public enum Sentlog {
     private static var motion:    MotionCapture?
     private static var currentConfig: SentlogConfig?
     private static var telemetry: NativeBridge.TelemetryBox?
+    private static var dispatcher: NativeBridge.DispatcherBox?
     private static let stateLock = NSLock()
 
     private static let encoder: JSONEncoder = {
@@ -351,6 +352,90 @@ public enum Sentlog {
         return 0
     }
 
+    /// Phase 4d: register the Ed25519 signing key the SDK uses to
+    /// populate the W3C VC 2.0 envelope's `proof` block.
+    /// `secretKey` is the 64-byte RFC 8032 seed||pubkey
+    /// concatenation; the integrator obtains it from libsodium /
+    /// CryptoKit / hardware-backed Secure Enclave (Phase 7 swaps
+    /// in `ecdsa-jcs-2019` for hardware). Throws if the key is the
+    /// wrong length.
+    public static func setSigningKey(_ secretKey: Data,
+                                     verificationMethod: String) throws {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let h = try requireHandleLocked()
+        let status = secretKey.withUnsafeBytes { buf -> sentlog_status_t in
+            let p = buf.baseAddress?.bindMemory(to: UInt8.self,
+                                                capacity: secretKey.count)
+            return sentlog_set_signing_key(h, p, secretKey.count,
+                                           verificationMethod)
+        }
+        try NativeBridge.mustSucceed(status, "setSigningKey")
+    }
+
+    /// Phase 4d: register (or clear, with `nil`) the per-handle
+    /// envelope dispatcher. Fires once per configured forwarder after
+    /// evaluate, for sinks other than `local_queue` (the C++ core
+    /// writes those to file). The closure runs on the SDK's I/O
+    /// thread; long-running work (HTTP POSTs, etc.) should hand off
+    /// to the integrator's own scheduler.
+    public static func setEnvelopeDispatcher(
+        _ handler: ((_ forwarderName: String,
+                     _ sinkKind: String,
+                     _ sinkJson: String,
+                     _ envelopeJson: String) -> Void)?
+    ) throws {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let h = try requireHandleLocked()
+
+        guard let handler else {
+            // Clear at the C ABI first so the trampoline stops
+            // firing, then release our retained box.
+            let s = sentlog_set_envelope_dispatcher(h, nil, nil)
+            try NativeBridge.mustSucceed(s, "setEnvelopeDispatcher.clear")
+            if let prev = dispatcher {
+                // Release the previously-retained box (its Unmanaged
+                // pointer was handed to the C ABI as userdata at
+                // registration; clearing above means the C ABI no
+                // longer references it, so the trailing release
+                // matches the original passRetained).
+                Unmanaged.passUnretained(prev).release()
+                dispatcher = nil
+            }
+            return
+        }
+
+        let box = NativeBridge.DispatcherBox(handler)
+        let userdata = Unmanaged.passRetained(box).toOpaque()
+        let cb: sentlog_envelope_dispatch_cb_t = { fwName, sKind, sJson, eJson, ud in
+            guard let ud else { return }
+            let b = Unmanaged<NativeBridge.DispatcherBox>
+                .fromOpaque(ud).takeUnretainedValue()
+            b.onEnvelope(
+                fwName.map { String(cString: $0) } ?? "",
+                sKind.map  { String(cString: $0) } ?? "",
+                sJson.map  { String(cString: $0) } ?? "",
+                eJson.map  { String(cString: $0) } ?? ""
+            )
+        }
+        let s = sentlog_set_envelope_dispatcher(h, cb, userdata)
+        guard s == SENTLOG_OK else {
+            // Roll back our retain — the C ABI didn't accept the
+            // pointer, so we own the imbalance.
+            Unmanaged<NativeBridge.DispatcherBox>
+                .fromOpaque(userdata).release()
+            throw SentlogError(status: s, context: "setEnvelopeDispatcher")
+        }
+        // Release the previous registration's retain (if any) only
+        // after the new one is accepted by the C ABI — keeps the old
+        // box alive until the swap point.
+        if let prev = dispatcher {
+            Unmanaged.passUnretained(prev).release()
+        }
+        dispatcher = box
+    }
+
     /// Release the SDK handle. Safe to call multiple times.
     public static func destroy() {
         stateLock.lock()
@@ -367,8 +452,16 @@ public enum Sentlog {
         motion?.stop()
         motion = nil
         if let h = handle {
+            // Clear the envelope dispatcher at the C ABI before
+            // destroy so the trampoline can't fire against a
+            // freed handle. Then release our retained box.
+            _ = sentlog_set_envelope_dispatcher(h, nil, nil)
             sentlog_destroy(h)
             handle = nil
+        }
+        if let prev = dispatcher {
+            Unmanaged.passUnretained(prev).release()
+            dispatcher = nil
         }
         telemetry = nil
         currentConfig = nil
