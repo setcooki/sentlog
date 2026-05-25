@@ -52,6 +52,7 @@ add_library(sentlog STATIC
     src/internal/text_match.cpp
     src/internal/fingerprint.cpp
     src/internal/prosody.cpp
+    src/internal/envelope.cpp
     src/internal/vad/energy_vad.cpp
 )
 target_include_directories(sentlog
