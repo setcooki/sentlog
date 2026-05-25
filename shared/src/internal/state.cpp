@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstring>
+#include <fstream>
 
 #include "internal/envelope.h"
 #include "internal/pipeline.h"
@@ -389,9 +390,23 @@ void State::dispatch_envelopes(const std::string& result_json) {
         }
 
         if (fw.sink_kind == "local_queue") {
-            // C++-side handler lands in 4d2 (file I/O). For 4d1 the
-            // local-queue sink is a no-op so the dispatcher path
-            // can be tested in isolation.
+            // Phase 4d2: append the envelope as one NDJSON line so
+            // sentlog_drain_queue can read it back line-by-line in
+            // a future chunk. The integrator's sink_json must carry
+            // a "path" string; failure to parse or open the file
+            // silently skips this forwarder.
+            try {
+                const auto sj = json::parse(fw.sink_json);
+                if (!sj.contains("path") || !sj["path"].is_string()) continue;
+                const std::string path = sj["path"].get<std::string>();
+                std::ofstream out(path, std::ios::app | std::ios::binary);
+                if (!out) continue;
+                out << envelope_json << "\n";
+            } catch (...) {
+                // Bad sink JSON / disk full / permission denied: drop
+                // the envelope. Telemetry hook + retry/backoff land in
+                // 4f.
+            }
             continue;
         }
 

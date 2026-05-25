@@ -8,7 +8,10 @@
 #include <nlohmann/json.hpp>
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <random>
 #include <string>
 #include <vector>
@@ -1250,6 +1253,75 @@ TEST(PipelineTest, NoDispatcherRegisteredSkipsForwarderQuietly) {
 
     Capture cap;
     // No dispatcher registered — must still succeed.
+    EXPECT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, LocalQueueForwarderAppendsNdjsonToFile) {
+    // Phase 4d2: local_queue sinks write the envelope as one
+    // NDJSON line per evaluate so a future drainQueue can read them
+    // back line-by-line.
+    const std::string path =
+        std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp")
+        + "/sentlog-pipeline-test-queue.ndjson";
+    std::remove(path.c_str());  // start clean
+
+    const std::string cfg = std::string(R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "q", "projection": "ScoresOnly",
+              "sink": { "kind": "local_queue", "path": ")")
+        + path + R"(" } }
+        ]
+    })";
+    sentlog_status_t s;
+    auto* h = sentlog_create(cfg.c_str(), nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+
+    // Two evaluates → two NDJSON lines.
+    for (int i = 0; i < 2; ++i) {
+        ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+        auto audio = make_speech_2s();
+        sentlog_push_audio_frame(h, audio.data(), audio.size());
+        Capture cap;
+        ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    }
+
+    std::ifstream in(path);
+    ASSERT_TRUE(in.is_open()) << "queue file should have been created at " << path;
+    std::string line;
+    int line_count = 0;
+    while (std::getline(in, line)) {
+        ++line_count;
+        const json env = json::parse(line);
+        EXPECT_EQ(env["credentialSubject"]["projection"], "ScoresOnly");
+    }
+    EXPECT_EQ(line_count, 2);
+
+    std::remove(path.c_str());
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, LocalQueueBadPathSkipsSilently) {
+    // Unwritable path → evaluate must still succeed; the envelope
+    // is dropped silently (telemetry hook lands in 4f).
+    const char* cfg = R"({
+        "issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "forwarders": [
+            { "name": "q", "projection": "Full",
+              "sink": { "kind": "local_queue",
+                        "path": "/this/path/does/not/exist/queue.ndjson" } }
+        ]
+    })";
+    sentlog_status_t s;
+    auto* h = sentlog_create(cfg, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    Capture cap;
     EXPECT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
     sentlog_destroy(h);
 }
