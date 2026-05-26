@@ -450,31 +450,42 @@ void State::dispatch_envelopes(const std::string& result_json) {
             // sink_json's "path" was validated at parse_config (4e);
             // file-open failures still emit a telemetry skip event.
             //
-            // POSIX flock (Phase 4 audit A1): serialises this
-            // append against a concurrent drain reading + rewriting
-            // the same file. Without the lock the drain would
-            // silently discard envelopes appended between its read
-            // and its rename.
+            // Sidecar flock (Phase 4 audit A1): we lock <path>.lock
+            // — not <path> itself — so the lock's identity stays
+            // stable across drain's tmp+rename. Locking the data
+            // file directly would race: the writer's pre-acquired
+            // fd would point at the unlinked old inode after drain
+            // renamed a fresh file over it. drain takes the same
+            // sidecar lock; see sentlog_drain_queue.
             try {
                 const auto sj = json::parse(fw.sink_json);
                 const std::string path = sj["path"].get<std::string>();
-                const int fd = ::open(path.c_str(),
-                                      O_WRONLY | O_CREAT | O_APPEND, 0600);
-                if (fd < 0) {
+                const std::string lock_path = path + ".lock";
+                const int lockfd = ::open(lock_path.c_str(),
+                                          O_RDWR | O_CREAT, 0600);
+                if (lockfd < 0) {
                     emit_skip(fw.name, "local_queue_open_failed");
                     continue;
                 }
-                if (::flock(fd, LOCK_EX) != 0) {
-                    ::close(fd);
+                if (::flock(lockfd, LOCK_EX) != 0) {
+                    ::close(lockfd);
                     emit_skip(fw.name, "local_queue_open_failed");
                     continue;
                 }
-                const std::string line = envelope_json + "\n";
-                const ssize_t want = static_cast<ssize_t>(line.size());
-                const ssize_t got  = ::write(fd, line.data(), line.size());
-                ::flock(fd, LOCK_UN);
-                ::close(fd);
-                if (got != want) emit_skip(fw.name, "local_queue_open_failed");
+                // With the sidecar lock held, append to the data
+                // file. std::ofstream is fine here — no other
+                // process can rename while we're writing.
+                bool wrote = false;
+                {
+                    std::ofstream out(path, std::ios::app | std::ios::binary);
+                    if (out) {
+                        out << envelope_json << "\n";
+                        wrote = static_cast<bool>(out);
+                    }
+                }
+                ::flock(lockfd, LOCK_UN);
+                ::close(lockfd);
+                if (!wrote) emit_skip(fw.name, "local_queue_open_failed");
             } catch (...) {
                 emit_skip(fw.name, "local_queue_open_failed");
             }

@@ -264,20 +264,29 @@ int sentlog_drain_queue(sentlog_handle_t* handle,
     // Race avoidance (Phase 4 audit A1): an evaluate() running
     // concurrently in another thread / process appends to the same
     // file. Without locking, an append between our read and our
-    // tmp+rename would be silently discarded by the rename. Hold an
-    // exclusive flock on the queue file for the entire read +
-    // rewrite window. LocalQueueSink's append path acquires the
-    // same flock before each write, so the lock fully serialises
-    // drain against dispatch. POSIX-only; a Windows port would use
-    // LockFileEx.
-    const int fd = ::open(path, O_RDONLY);
-    if (fd < 0) return 0;
-    if (::flock(fd, LOCK_EX) != 0) { ::close(fd); return 0; }
+    // tmp+rename would be silently discarded by the rename. We
+    // serialise via a sidecar lock file (`<path>.lock`) whose
+    // identity is stable across the rename — locking the data
+    // file itself doesn't work, because its inode changes mid-
+    // drain and the writer's pre-acquired fd ends up pointing at
+    // the unlinked old version. LocalQueueSink's append takes the
+    // same sidecar lock. POSIX-only; a Windows port would use
+    // LockFileEx on a sidecar.
+    const std::string lock_path = std::string(path) + ".lock";
+    const int lockfd = ::open(lock_path.c_str(),
+                              O_RDWR | O_CREAT, 0600);
+    if (lockfd < 0) return 0;
+    if (::flock(lockfd, LOCK_EX) != 0) { ::close(lockfd); return 0; }
 
     int delivered = 0;
     std::vector<std::string> kept;
     {
         std::ifstream in(path);
+        if (!in.is_open()) {
+            ::flock(lockfd, LOCK_UN);
+            ::close(lockfd);
+            return 0;
+        }
         std::string line;
         while (std::getline(in, line)) {
             if (line.empty()) continue;
@@ -289,17 +298,14 @@ int sentlog_drain_queue(sentlog_handle_t* handle,
         }
     }
 
-    // Rewrite if we removed any entries. The tmp+rename is still
-    // worth doing under the lock — if we crash after the rename
-    // there's nothing to recover; if we crash before, the original
-    // file is intact.
+    // Rewrite if we removed any entries.
     if (kept.size() != static_cast<size_t>(delivered)) {
         const std::string tmp = std::string(path) + ".drain.tmp";
         {
             std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
             if (!out.is_open()) {
-                ::flock(fd, LOCK_UN);
-                ::close(fd);
+                ::flock(lockfd, LOCK_UN);
+                ::close(lockfd);
                 return delivered;
             }
             for (const auto& k : kept) out << k << "\n";
@@ -310,8 +316,8 @@ int sentlog_drain_queue(sentlog_handle_t* handle,
         std::rename(tmp.c_str(), path);
     }
 
-    ::flock(fd, LOCK_UN);
-    ::close(fd);
+    ::flock(lockfd, LOCK_UN);
+    ::close(lockfd);
     return delivered;
 }
 

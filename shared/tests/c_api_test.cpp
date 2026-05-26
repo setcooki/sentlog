@@ -397,18 +397,25 @@ TEST(CApiTest, DrainQueueConcurrentAppendIsNotDiscarded) {
     const auto p = tmp_queue_path("concurrent-append");
     write_lines(p, {"{\"a\":1}"});
 
-    // Start a writer thread that opens, flocks, sleeps briefly,
-    // writes, unlocks. While the drain holds the lock, the writer
-    // blocks. When drain releases, the writer runs and appends.
+    // Start a writer thread that mimics dispatch_envelopes'
+    // append path: take the sidecar lock, open the data file by
+    // path, write, release. While drain holds the sidecar lock,
+    // the writer blocks; after drain releases (and has done the
+    // tmp+rename), the writer opens the post-rename file and
+    // appends. Without sidecar locking, the writer would have
+    // opened the pre-rename inode and lost its line.
     std::thread writer([&]() {
-        // Tiny sleep to let drain acquire the lock first.
+        // Tiny sleep to let drain acquire the sidecar lock first.
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        const int fd = ::open(p.c_str(), O_WRONLY | O_APPEND);
-        if (fd < 0) return;
-        ::flock(fd, LOCK_EX);
-        ::write(fd, "{\"b\":2}\n", 8);
-        ::flock(fd, LOCK_UN);
-        ::close(fd);
+        const std::string lock_path = p + ".lock";
+        const int lockfd = ::open(lock_path.c_str(),
+                                  O_RDWR | O_CREAT, 0600);
+        if (lockfd < 0) return;
+        ::flock(lockfd, LOCK_EX);
+        std::ofstream out(p, std::ios::app | std::ios::binary);
+        if (out) out << "{\"b\":2}\n";
+        ::flock(lockfd, LOCK_UN);
+        ::close(lockfd);
     });
 
     DrainCapture dc;
