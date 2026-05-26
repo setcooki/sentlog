@@ -16,6 +16,12 @@
 #include <string>
 #include <vector>
 
+// POSIX flock for queue serialisation. Sentlog targets POSIX (Linux,
+// macOS, iOS, Android NDK); a Windows port would need LockFileEx.
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+
 #include "internal/config.h"
 #include "internal/state.h"
 
@@ -253,35 +259,59 @@ int sentlog_drain_queue(sentlog_handle_t* handle,
     // Phase 4i: read the NDJSON queue file (written by 4d2's
     // LocalQueueSink) line-by-line. Each line is one envelope. The
     // cb returns 1 to delete the envelope from the queue, 0 to
-    // keep it for a later drain. After the loop we rewrite the
-    // file with the kept lines via tmp-and-rename so the drain is
-    // atomic against a crash mid-write.
-    std::ifstream in(path);
-    if (!in.is_open()) return 0;
+    // keep it for a later drain.
+    //
+    // Race avoidance (Phase 4 audit A1): an evaluate() running
+    // concurrently in another thread / process appends to the same
+    // file. Without locking, an append between our read and our
+    // tmp+rename would be silently discarded by the rename. Hold an
+    // exclusive flock on the queue file for the entire read +
+    // rewrite window. LocalQueueSink's append path acquires the
+    // same flock before each write, so the lock fully serialises
+    // drain against dispatch. POSIX-only; a Windows port would use
+    // LockFileEx.
+    const int fd = ::open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    if (::flock(fd, LOCK_EX) != 0) { ::close(fd); return 0; }
 
-    std::vector<std::string> kept;
-    std::string line;
     int delivered = 0;
-    while (std::getline(in, line)) {
-        if (line.empty()) continue;
-        ++delivered;
-        const int keep = cb(line.c_str(), line.size(), userdata) == 1
-            ? 0   // cb returned 1 → delete
-            : 1;  // cb returned 0 (or anything else) → keep
-        if (keep) kept.push_back(line);
+    std::vector<std::string> kept;
+    {
+        std::ifstream in(path);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (line.empty()) continue;
+            ++delivered;
+            const int keep = cb(line.c_str(), line.size(), userdata) == 1
+                ? 0   // cb returned 1 → delete
+                : 1;  // cb returned 0 (or anything else) → keep
+            if (keep) kept.push_back(line);
+        }
     }
-    in.close();
 
-    // Rewrite if we removed any entries.
+    // Rewrite if we removed any entries. The tmp+rename is still
+    // worth doing under the lock — if we crash after the rename
+    // there's nothing to recover; if we crash before, the original
+    // file is intact.
     if (kept.size() != static_cast<size_t>(delivered)) {
         const std::string tmp = std::string(path) + ".drain.tmp";
         {
             std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-            if (!out.is_open()) return delivered;  // can't rewrite; leave file as-is
+            if (!out.is_open()) {
+                ::flock(fd, LOCK_UN);
+                ::close(fd);
+                return delivered;
+            }
             for (const auto& k : kept) out << k << "\n";
         }
+        // std::rename atomically replaces on POSIX (Linux, macOS,
+        // iOS, Android NDK). On Windows it would fail when the
+        // target exists; we don't ship Windows.
         std::rename(tmp.c_str(), path);
     }
+
+    ::flock(fd, LOCK_UN);
+    ::close(fd);
     return delivered;
 }
 

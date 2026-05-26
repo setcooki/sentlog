@@ -379,6 +379,16 @@ public enum Sentlog {
     /// writes those to file). The closure runs on the SDK's I/O
     /// thread; long-running work (HTTP POSTs, etc.) should hand off
     /// to the integrator's own scheduler.
+    ///
+    /// Exception semantics: the closure type is non-throwing, so
+    /// Swift errors can't escape. Obj-C exceptions thrown from
+    /// bridged code (e.g. NSException via Foundation calls in the
+    /// dispatcher body) would unwind through the C++ dispatch loop
+    /// and crash the host process — wrap such calls in try/catch on
+    /// the integrator's side. Unlike the Android binding's JNI
+    /// trampoline (which clears any pending Java exception so the
+    /// loop survives), there is no Swift-side equivalent to catch
+    /// for non-throwing closures.
     public static func setEnvelopeDispatcher(
         _ handler: ((_ forwarderName: String,
                      _ sinkKind: String,

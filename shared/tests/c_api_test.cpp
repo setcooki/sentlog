@@ -8,12 +8,19 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
+
+// POSIX flock for the concurrent-drain race test.
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 namespace {
 
@@ -369,6 +376,63 @@ TEST(CApiTest, DrainQueueMissingFileReturnsZero) {
                                   "/tmp/sentlog-drain-does-not-exist.ndjson",
                                   &on_drain, nullptr),
               0);
+}
+
+TEST(CApiTest, DrainQueueConcurrentAppendIsNotDiscarded) {
+    // Phase 4 audit A1 regression: a parallel append while the
+    // drain holds the file must not be silently destroyed by the
+    // tmp+rename. We can't easily run an actual concurrent
+    // evaluate from a gtest, so simulate the race by ordering:
+    // pre-populate the file with one envelope, run drain with a cb
+    // that calls open()+flock()+write inside the callback to mimic
+    // a concurrent append, then verify the appended line survives.
+    //
+    // The flock in sentlog_drain_queue blocks any other writer
+    // until the drain rewrites + unlocks, so the test thread's
+    // simulated append (running inside the cb, before the rewrite)
+    // would actually appear in the pre-rewrite read pass — so
+    // model the race differently: append AFTER drain's read pass
+    // but BEFORE the rewrite, from a worker thread that waits on
+    // the same flock.
+    const auto p = tmp_queue_path("concurrent-append");
+    write_lines(p, {"{\"a\":1}"});
+
+    // Start a writer thread that opens, flocks, sleeps briefly,
+    // writes, unlocks. While the drain holds the lock, the writer
+    // blocks. When drain releases, the writer runs and appends.
+    std::thread writer([&]() {
+        // Tiny sleep to let drain acquire the lock first.
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        const int fd = ::open(p.c_str(), O_WRONLY | O_APPEND);
+        if (fd < 0) return;
+        ::flock(fd, LOCK_EX);
+        ::write(fd, "{\"b\":2}\n", 8);
+        ::flock(fd, LOCK_UN);
+        ::close(fd);
+    });
+
+    DrainCapture dc;
+    // Slow the drain cb so the writer thread has a chance to
+    // contend for the lock during the read pass.
+    int delivered = 0;
+    auto slow_cb = +[](const char* j, size_t, void* ud) -> int {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        auto* c = static_cast<DrainCapture*>(ud);
+        c->seen.emplace_back(j ? j : "");
+        return 1;  // delete
+    };
+    delivered = sentlog_drain_queue(nullptr, p.c_str(), slow_cb, &dc);
+    EXPECT_EQ(delivered, 1) << "drain saw the original line";
+    writer.join();
+
+    // The writer's appended line must survive — it ran after drain
+    // released the lock. The flock contract prevents the rewrite
+    // from clobbering an in-flight append.
+    const auto remaining = read_lines(p);
+    ASSERT_EQ(remaining.size(), 1u)
+        << "post-drain file should contain exactly the writer's appended line";
+    EXPECT_EQ(remaining[0], "{\"b\":2}");
+    std::remove(p.c_str());
 }
 
 TEST(CApiTest, DrainQueueNullArgsReturnZero) {

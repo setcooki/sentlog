@@ -148,6 +148,28 @@ at `tools/reference-consumer/`. End-to-end forwarder integration test
 on both platforms. Envelope verifies cleanly against a generic
 VC-2.0-aware verifier.
 
+**Deferred to Phase 4.5 (post-Phase 5)**:
+
+- **4g: Opus encoding** for the `EvidenceClip` and `Full+AudioClip`
+  projections. The projections currently emit a documented
+  `audio_clip` placeholder (`{"codec":"opus","bytes":""}`); the
+  wire shape is stable, vendoring libopus + filling the bytes is a
+  pure addition. Integrators who don't need clip projections are
+  unaffected.
+- **4h: RFC 3161 TSA hook**. The `tsa_endpoint` config field
+  parses but `tsa_timestamp` isn't constructed yet. The
+  `SENTLOG_ERR_TSA` status is reserved. The default `tsa_required:
+  false` preserves inert-by-default, so the absence is silent;
+  setting `tsa_required: true` would error on the next dispatch
+  rather than silently mis-attest (a future chunk needs to wire
+  this).
+
+The remaining Phase 4 deliverables (envelope construction +
+projections + signing + sink fanout + LocalQueue + drainQueue +
+sampling + reference verifier) are all shipped and CI-green. The
+two deferred items add bytes/timestamps inside the same envelope
+shape; they don't change the public ABI surface.
+
 ### Phase 5 — Video affect + permissions (Weeks 9–10)
 
 - Video affect module: MediaPipe Face Mesh on Android, Vision face

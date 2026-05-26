@@ -6,6 +6,13 @@
 #include <fstream>
 #include <random>
 
+// POSIX flock so LocalQueueSink appends serialise against
+// concurrent sentlog_drain_queue reads + rewrites. See the
+// matching lock in c_api.cpp:sentlog_drain_queue.
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+
 #include "internal/envelope.h"
 #include "internal/pipeline.h"
 #include "internal/signing.h"
@@ -442,15 +449,32 @@ void State::dispatch_envelopes(const std::string& result_json) {
             // sentlog_drain_queue can read it back line-by-line.
             // sink_json's "path" was validated at parse_config (4e);
             // file-open failures still emit a telemetry skip event.
+            //
+            // POSIX flock (Phase 4 audit A1): serialises this
+            // append against a concurrent drain reading + rewriting
+            // the same file. Without the lock the drain would
+            // silently discard envelopes appended between its read
+            // and its rename.
             try {
                 const auto sj = json::parse(fw.sink_json);
                 const std::string path = sj["path"].get<std::string>();
-                std::ofstream out(path, std::ios::app | std::ios::binary);
-                if (!out) {
+                const int fd = ::open(path.c_str(),
+                                      O_WRONLY | O_CREAT | O_APPEND, 0600);
+                if (fd < 0) {
                     emit_skip(fw.name, "local_queue_open_failed");
                     continue;
                 }
-                out << envelope_json << "\n";
+                if (::flock(fd, LOCK_EX) != 0) {
+                    ::close(fd);
+                    emit_skip(fw.name, "local_queue_open_failed");
+                    continue;
+                }
+                const std::string line = envelope_json + "\n";
+                const ssize_t want = static_cast<ssize_t>(line.size());
+                const ssize_t got  = ::write(fd, line.data(), line.size());
+                ::flock(fd, LOCK_UN);
+                ::close(fd);
+                if (got != want) emit_skip(fw.name, "local_queue_open_failed");
             } catch (...) {
                 emit_skip(fw.name, "local_queue_open_failed");
             }
