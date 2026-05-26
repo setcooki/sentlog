@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -156,12 +157,75 @@ float motion_score_from_frames(const std::vector<PushedMotionFrame>& frames) {
 
 }  // namespace
 
+namespace {
+
+/// Phase 5a affect aggregation — pure pass over per-frame
+/// (valence, arousal, FAU) tuples pushed by the platform-side
+/// affect head. Means for valence + arousal; FAU dominance by
+/// frame-count (mode). Only the derived values cross the C ABI;
+/// raw landmarks never reach the C++ core per spec §5.3.
+///
+/// face_score returned for engagement.face_score is a simple
+/// proxy: 0.5 + 0.5 * mean_valence (clamped). High-valence
+/// captures score near 1.0; high-arousal-negative-valence
+/// (e.g. distressed) scores near 0.0. Heuristic only — same
+/// "training" caveat as voice_score until the trained head lands.
+struct AffectAggregate {
+    bool        has_signal{false};
+    float       mean_valence{0.0f};
+    float       mean_arousal{0.0f};
+    float       face_score{0.0f};
+    std::vector<std::string> dominant_fau;
+};
+
+AffectAggregate aggregate_face_frames(
+    const std::vector<PushedFaceFrame>& frames) {
+    AffectAggregate out;
+    if (frames.empty()) return out;
+    double v_sum = 0.0;
+    double a_sum = 0.0;
+    std::map<std::string, int> fau_counts;
+    for (const auto& f : frames) {
+        v_sum += f.valence;
+        a_sum += f.arousal;
+        if (!f.dominant_fau.empty()) {
+            // CSV split — increment count per FAU token.
+            size_t start = 0;
+            while (start <= f.dominant_fau.size()) {
+                const size_t comma = f.dominant_fau.find(',', start);
+                const size_t end   = (comma == std::string::npos)
+                    ? f.dominant_fau.size() : comma;
+                if (end > start) {
+                    fau_counts[f.dominant_fau.substr(start, end - start)] += 1;
+                }
+                if (comma == std::string::npos) break;
+                start = comma + 1;
+            }
+        }
+    }
+    const double n = static_cast<double>(frames.size());
+    out.has_signal   = true;
+    out.mean_valence = static_cast<float>(v_sum / n);
+    out.mean_arousal = static_cast<float>(a_sum / n);
+    const float fs   = 0.5f + 0.5f * out.mean_valence;
+    out.face_score   = std::clamp(fs, 0.0f, 1.0f);
+    // Surface FAUs seen on >= 25% of frames as "dominant".
+    const int threshold = std::max(1, static_cast<int>(frames.size() / 4));
+    for (const auto& [fau, count] : fau_counts) {
+        if (count >= threshold) out.dominant_fau.push_back(fau);
+    }
+    return out;
+}
+
+}  // namespace
+
 std::string Pipeline::run(const Config& config,
                           RingBuffer& ring,
                           const std::vector<PushedVadFrame>& pushed_vad,
                           const std::optional<PushedLiveness>& pushed_liveness,
                           const std::optional<PushedTranscript>& pushed_transcript,
                           const std::vector<PushedMotionFrame>& pushed_motion,
+                          const std::vector<PushedFaceFrame>& pushed_face,
                           sentlog_audio_route_t audio_route) {
     // 1. Drain audio.
     const std::vector<float> audio = drain_audio(ring);
@@ -345,10 +409,13 @@ std::string Pipeline::run(const Config& config,
     result["thresholds_met"] = thresholds_met;
 
     // 7. Engagement — voice_score from the Phase 3d prosody
-    //    extractor when speech was detected; otherwise the constant
-    //    placeholder. model_status reflects which path ran:
-    //      "training"     — real (but heuristic, not trained) signal
-    //      "placeholder"  — extractor didn't run or had no signal
+    //    extractor when speech was detected; face_score from the
+    //    Phase 5 affect aggregator when use_video_affect is on and
+    //    face frames were pushed. model_status reflects which path
+    //    ran:
+    //      "training"     — at least one real (but heuristic, not
+    //                       trained) signal contributed
+    //      "placeholder"  — nothing real ran
     //    Integrators are told not to surface engagement.score until
     //    model_status is "trained" (Phase 6+ when the trained head
     //    lands).
@@ -357,29 +424,56 @@ std::string Pipeline::run(const Config& config,
         prosody = extract_prosody(audio.data(), audio.size());
         if (!prosody->has_signal) prosody.reset();
     }
+    AffectAggregate affect{};
+    if (config.use_video_affect && !pushed_face.empty()) {
+        affect = aggregate_face_frames(pushed_face);
+    }
     {
         json e;
-        if (prosody.has_value()) {
-            e["voice_score"]  = prosody->voice_score;
-            e["model_status"] = "training";
-            // Weighted ensemble over populated sub-fields, same
-            // shape as presence.summary above. Only voice is
-            // populated today; face_score joins in Phase 5 as a
-            // second term in the same loop. With a single
-            // populated field, score = voice_score regardless of
-            // the weight value — the weight only starts to bite
-            // once a second sub-field lands.
+        const bool any_real = prosody.has_value() || affect.has_signal;
+        if (any_real) {
+            // Weighted ensemble of populated sub-fields, same shape
+            // as presence.summary. Each contributing signal gets
+            // its scoring_weight; absent signals don't enter the
+            // mean.
             const float w_voice = weight_or_default(config, "engagement.voice");
-            float num = prosody->voice_score * w_voice;
-            float den = w_voice;
-            // (Phase 5+: add the face_score term here.)
-            e["score"] = (den > 0.0f) ? (num / den) : 0.0f;
+            const float w_face  = weight_or_default(config, "engagement.face");
+            float num = 0.0f, den = 0.0f;
+            if (prosody.has_value()) {
+                e["voice_score"]  = prosody->voice_score;
+                num += prosody->voice_score * w_voice;
+                den += w_voice;
+            }
+            if (affect.has_signal) {
+                e["face_score"]   = affect.face_score;
+                num += affect.face_score * w_face;
+                den += w_face;
+            }
+            e["score"]        = (den > 0.0f) ? (num / den) : 0.0f;
+            e["model_status"] = "training";
         } else {
             e["voice_score"]  = 0.65f;
             e["model_status"] = "placeholder";
             e["score"]        = 0.65f;
         }
         result["engagement"] = e;
+    }
+
+    // 7b. Affect block — populated only when the face aggregator
+    //     ran. Per spec §5.3 the raw landmark frames never leave
+    //     the device; what reaches the envelope is the derived
+    //     (valence, arousal, dominant_fau) summary and nothing
+    //     else.
+    if (affect.has_signal) {
+        json a;
+        a["valence"]      = affect.mean_valence;
+        a["arousal"]      = affect.mean_arousal;
+        if (!affect.dominant_fau.empty()) {
+            a["dominant_fau"] = affect.dominant_fau;
+        }
+        result["affect"] = a;
+    } else {
+        result["affect"] = nullptr;
     }
 
     // 8. Fingerprint — MIT perceptual hash (Phase 3a). Always
@@ -412,6 +506,9 @@ std::string Pipeline::run(const Config& config,
         mv["vad"]      = used_pushed_vad
             ? "silero-vad-v5-platform-onnx"
             : "energy-vad-baseline";
+        if (affect.has_signal) {
+            mv["affect"] = "mediapipe-face-mesh-platform";
+        }
         mv["manifest"] = "0.0.0-phase1";
         result["model_versions"] = mv;
     }

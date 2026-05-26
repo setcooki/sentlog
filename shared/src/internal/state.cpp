@@ -55,6 +55,10 @@ sentlog_status_t State::start_capture() {
         std::lock_guard<std::mutex> lock(motion_mutex_);
         pushed_motion_frames_.clear();
     }
+    {
+        std::lock_guard<std::mutex> lock(face_mutex_);
+        pushed_face_frames_.clear();
+    }
     return SENTLOG_OK;
 }
 
@@ -83,11 +87,12 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
         const auto pushed_liveness   = snapshot_liveness();
         const auto pushed_transcript = snapshot_transcript();
         const auto pushed_motion     = snapshot_motion_frames();
+        const auto pushed_face       = snapshot_face_frames();
         const auto route             = audio_route();
         *result_json_out = Pipeline::run(config_, ring_,
                                          pushed_vad, pushed_liveness,
                                          pushed_transcript, pushed_motion,
-                                         route);
+                                         pushed_face, route);
         // Phase 4d: dispatch envelopes for each configured forwarder
         // BEFORE the per-state cleanup below. Failures inside
         // dispatch_envelopes are absorbed (continue per forwarder)
@@ -117,6 +122,10 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
     {
         std::lock_guard<std::mutex> lock(motion_mutex_);
         pushed_motion_frames_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(face_mutex_);
+        pushed_face_frames_.clear();
     }
     phase_.store(static_cast<int>(LifecyclePhase::Idle),
                  std::memory_order_release);
@@ -257,6 +266,38 @@ sentlog_status_t State::push_motion_frame(int64_t timestamp_ns,
 std::vector<PushedMotionFrame> State::snapshot_motion_frames() const {
     std::lock_guard<std::mutex> lock(motion_mutex_);
     return pushed_motion_frames_;
+}
+
+namespace {
+constexpr size_t kMaxFaceFrames = 6000;   // 60 s at 100 Hz upper bound
+}  // namespace
+
+sentlog_status_t State::push_face_frame(int64_t timestamp_ns,
+                                        float valence,
+                                        float arousal,
+                                        const char* dominant_fau_csv) {
+    if (phase() != LifecyclePhase::Capturing) {
+        return SENTLOG_ERR_INVALID_STATE;
+    }
+    auto clamp = [](float v, float lo, float hi) {
+        if (v < lo) return lo;
+        if (v > hi) return hi;
+        return v;
+    };
+    std::lock_guard<std::mutex> lock(face_mutex_);
+    if (pushed_face_frames_.size() >= kMaxFaceFrames) return SENTLOG_OK;
+    pushed_face_frames_.push_back(PushedFaceFrame{
+        timestamp_ns,
+        clamp(valence, -1.0f, 1.0f),
+        clamp(arousal,  0.0f, 1.0f),
+        dominant_fau_csv ? std::string(dominant_fau_csv) : std::string(),
+    });
+    return SENTLOG_OK;
+}
+
+std::vector<PushedFaceFrame> State::snapshot_face_frames() const {
+    std::lock_guard<std::mutex> lock(face_mutex_);
+    return pushed_face_frames_;
 }
 
 std::string State::permissions_json() const {

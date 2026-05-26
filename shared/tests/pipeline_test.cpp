@@ -1326,6 +1326,136 @@ TEST(PipelineTest, LocalQueueBadPathSkipsSilently) {
     sentlog_destroy(h);
 }
 
+// --- Phase 5a: face-affect aggregation ---
+
+namespace {
+const char* kConfigWithVideoAffect =
+    R"({"issuer": "did:example:integrator",
+        "min_duration_ms": 500,
+        "use_video_affect": true})";
+
+void push_face_run(sentlog_handle_t* h,
+                   size_t n,
+                   float valence,
+                   float arousal,
+                   const char* fau) {
+    for (size_t i = 0; i < n; ++i) {
+        sentlog_push_face_frame(h,
+            static_cast<int64_t>(i) * 100'000'000,  // 10 Hz spacing
+            valence, arousal, fau);
+    }
+}
+}  // namespace
+
+TEST(PipelineTest, FaceAbsentLeavesAffectNull) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithVideoAffect, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_TRUE(j["affect"].is_null());
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, FaceFramesPopulateAffectBlock) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithVideoAffect, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+
+    // Steady "happy" affect — high valence, mid arousal, AU06+AU12.
+    push_face_run(h, 20, /*v=*/0.7f, /*a=*/0.5f, "AU06,AU12");
+
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    ASSERT_FALSE(j["affect"].is_null());
+    EXPECT_FLOAT_EQ(j["affect"]["valence"].get<float>(), 0.7f);
+    EXPECT_FLOAT_EQ(j["affect"]["arousal"].get<float>(), 0.5f);
+    ASSERT_TRUE(j["affect"].contains("dominant_fau"));
+    EXPECT_EQ(j["affect"]["dominant_fau"].size(), 2u);
+    EXPECT_EQ(j["model_versions"]["affect"], "mediapipe-face-mesh-platform");
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, FaceScoreContributesToEngagementEnsemble) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithVideoAffect, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    // Maximum-valence affect → face_score = 1.0.
+    push_face_run(h, 10, /*v=*/1.0f, /*a=*/0.5f, nullptr);
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_FLOAT_EQ(j["engagement"]["face_score"].get<float>(), 1.0f);
+    EXPECT_TRUE(j["engagement"].contains("voice_score"));
+    EXPECT_EQ(j["engagement"]["model_status"], "training");
+    // engagement.score is a weighted mean of voice (w=1.0) + face
+    // (w=0.5 default). With voice_score = whatever prosody returns
+    // and face_score = 1.0, the score must land between them.
+    const float vs = j["engagement"]["voice_score"].get<float>();
+    const float es = j["engagement"]["score"].get<float>();
+    EXPECT_GE(es, std::min(vs, 1.0f));
+    EXPECT_LE(es, std::max(vs, 1.0f) + 1e-5f);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, FaceFramesSuppressedWhenUseVideoAffectIsOff) {
+    // kValidConfig has use_video_affect == false. Pushed frames are
+    // accepted but the pipeline does NOT aggregate them — affect
+    // stays null and engagement reverts to voice-only.
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    push_face_run(h, 5, 0.5f, 0.5f, nullptr);
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    EXPECT_TRUE(j["affect"].is_null());
+    EXPECT_FALSE(j["engagement"].contains("face_score"));
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, FaceFramesClampValenceArousalToValidRange) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kConfigWithVideoAffect, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    ASSERT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    auto audio = make_speech_2s();
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    // Out-of-range inputs must be clamped to [-1,1] and [0,1].
+    sentlog_push_face_frame(h, 0, /*v=*/ 5.0f, /*a=*/ 2.0f, nullptr);
+    sentlog_push_face_frame(h, 1, /*v=*/-5.0f, /*a=*/-1.0f, nullptr);
+    Capture cap;
+    ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    const json j = json::parse(cap.result_json);
+    // Mean of clamped (1.0, -1.0) = 0.0; mean of clamped (1.0, 0.0) = 0.5.
+    EXPECT_NEAR(j["affect"]["valence"].get<float>(), 0.0f, 0.01f);
+    EXPECT_NEAR(j["affect"]["arousal"].get<float>(), 0.5f, 0.01f);
+    sentlog_destroy(h);
+}
+
+TEST(PipelineTest, PushFaceOutsideCaptureFailsLifecycle) {
+    sentlog_status_t s;
+    auto* h = sentlog_create(kValidConfig, nullptr, nullptr, &s);
+    ASSERT_NE(h, nullptr);
+    EXPECT_EQ(sentlog_push_face_frame(h, 0, 0.0f, 0.5f, nullptr),
+              SENTLOG_ERR_INVALID_STATE);
+    sentlog_destroy(h);
+}
+
 // --- Phase 4f: sampling + custom_fields + telemetry on skip ---
 
 namespace {

@@ -47,12 +47,19 @@ public:
     /// is true, the pipeline computes presence.motion from the
     /// buffered IMU series (Phase 3c). Otherwise presence.motion
     /// stays null.
+    ///
+    /// If `pushed_face` is non-empty and config.use_video_affect
+    /// is true, the pipeline aggregates per-frame affect into the
+    /// `affect` block (mean valence, mean arousal, modal FAU)
+    /// AND adds a face_score contribution to engagement.score.
+    /// Otherwise the affect block is null (Phase 5).
     static std::string run(const Config& config,
                            RingBuffer& ring,
                            const std::vector<PushedVadFrame>& pushed_vad,
                            const std::optional<PushedLiveness>& pushed_liveness,
                            const std::optional<PushedTranscript>& pushed_transcript,
                            const std::vector<PushedMotionFrame>& pushed_motion,
+                           const std::vector<PushedFaceFrame>& pushed_face,
                            sentlog_audio_route_t audio_route);
 };
 

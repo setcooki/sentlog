@@ -226,6 +226,38 @@ sentlog_status_t sentlog_push_liveness_result(
     float replay_risk,
     float synthetic_risk);
 
+/* Push one face-affect inference result from the platform-side
+ * affect head (MediaPipe Face Mesh on Android, Vision face
+ * landmarks on iOS). The pipeline aggregates frames across the
+ * capture and surfaces the result as the `affect` block in
+ * SentlogResult, plus a per-frame contribution to
+ * engagement.face_score. Phase 5+.
+ *
+ * The platform binding runs the model at 10-15 Hz during the
+ * utterance; raw landmark blobs never cross the C ABI (per spec
+ * §5.3 "Face frames never leave the device under any projection")
+ * — only the derived (valence, arousal, FAU) values are pushed.
+ *
+ *   timestamp_ns      Monotonic clock reading; relative differences
+ *                     matter for ordering, not absolute values.
+ *   valence           [-1.0, 1.0] negative=sad, positive=happy.
+ *   arousal           [0.0, 1.0]  activation level.
+ *   dominant_fau_csv  Optional CSV of Facial Action Unit names
+ *                     (e.g. "AU12,AU06"). Pass NULL when the head
+ *                     doesn't emit a confident FAU classification
+ *                     for the frame.
+ *
+ * Real-time-safe: never allocates beyond a per-frame heap-string
+ * copy of the CSV. Capped at 6000 frames per evaluate (60 s at
+ * 100 Hz upper bound). Must be called between startCapture and
+ * evaluate; lifecycle violation returns INVALID_STATE. */
+sentlog_status_t sentlog_push_face_frame(
+    sentlog_handle_t* handle,
+    int64_t timestamp_ns,
+    float valence,
+    float arousal,
+    const char* dominant_fau_csv);
+
 /* Push one accelerometer + gyroscope sample from the platform-side
  * motion sensor (Android SensorManager / iOS CoreMotion). The
  * pipeline analyses the buffered samples at evaluate time and

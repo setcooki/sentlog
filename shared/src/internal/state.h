@@ -74,6 +74,16 @@ struct PushedMotionFrame {
     float gx, gy, gz;
 };
 
+/// One face-affect inference result pushed by the platform-side
+/// affect head. Raw landmarks never reach the C++ core (spec §5.3);
+/// only the derived valence/arousal/FAU values.
+struct PushedFaceFrame {
+    int64_t     timestamp_ns;
+    float       valence;       // [-1, 1]
+    float       arousal;       // [0, 1]
+    std::string dominant_fau;  // CSV, may be empty
+};
+
 // 30 seconds of 16 kHz audio = 480 000 samples. Round up to 524 288
 // (2^19) for the power-of-two ring buffer requirement.
 constexpr size_t kRingBufferCapacitySamples = 524288;
@@ -152,6 +162,18 @@ public:
 
     /// Snapshot the pushed motion frames for pipeline consumption.
     std::vector<PushedMotionFrame> snapshot_motion_frames() const;
+
+    /// Push one face-affect inference result from the platform-side
+    /// affect head (MediaPipe / Vision). Same buffering posture as
+    /// motion: drop-newest on overflow, cleared on start_capture.
+    /// `dominant_fau_csv` may be null/empty.
+    sentlog_status_t push_face_frame(int64_t timestamp_ns,
+                                     float valence,
+                                     float arousal,
+                                     const char* dominant_fau_csv);
+
+    /// Snapshot the pushed face frames for pipeline consumption.
+    std::vector<PushedFaceFrame> snapshot_face_frames() const;
 
     // --- Phase 4d: signing + forwarder dispatch -------------------
 
@@ -244,6 +266,9 @@ private:
 
     mutable std::mutex motion_mutex_;
     std::vector<PushedMotionFrame> pushed_motion_frames_;
+
+    mutable std::mutex face_mutex_;
+    std::vector<PushedFaceFrame> pushed_face_frames_;
 
     // Phase 4d signing + dispatch state. Lifetimes are tied to the
     // sentlog_handle; the integrator clears these by destroy().
