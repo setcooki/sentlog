@@ -8,8 +8,12 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -297,6 +301,80 @@ TEST(CApiTest, CreateInvalidJsonReturnsInvalidConfig) {
     auto* h = sentlog_create("{not valid json", nullptr, nullptr, &status);
     EXPECT_EQ(h, nullptr);
     EXPECT_EQ(status, SENTLOG_ERR_INVALID_CONFIG);
+}
+
+// --- Phase 4i: drainQueue ---
+
+namespace {
+struct DrainCapture {
+    std::vector<std::string> seen;
+    bool delete_after_seen = true;
+};
+int on_drain(const char* envelope_json, size_t /*len*/, void* userdata) {
+    auto* c = static_cast<DrainCapture*>(userdata);
+    c->seen.emplace_back(envelope_json ? envelope_json : "");
+    return c->delete_after_seen ? 1 : 0;
+}
+
+std::string tmp_queue_path(const char* suffix) {
+    const char* dir = std::getenv("TMPDIR");
+    return std::string(dir ? dir : "/tmp") + "/sentlog-drain-" + suffix + ".ndjson";
+}
+
+void write_lines(const std::string& path,
+                 const std::vector<std::string>& lines) {
+    std::remove(path.c_str());
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    for (const auto& l : lines) out << l << "\n";
+}
+
+std::vector<std::string> read_lines(const std::string& path) {
+    std::vector<std::string> out;
+    std::ifstream in(path);
+    std::string l;
+    while (std::getline(in, l)) out.push_back(l);
+    return out;
+}
+}  // namespace
+
+TEST(CApiTest, DrainQueueDeliversAllLinesAndDeletesWhenCbReturnsOne) {
+    const auto p = tmp_queue_path("delete-all");
+    write_lines(p, {"{\"a\":1}", "{\"b\":2}", "{\"c\":3}"});
+    DrainCapture dc;
+    const int n = sentlog_drain_queue(nullptr, p.c_str(), &on_drain, &dc);
+    EXPECT_EQ(n, 3);
+    ASSERT_EQ(dc.seen.size(), 3u);
+    EXPECT_EQ(dc.seen[0], "{\"a\":1}");
+    EXPECT_EQ(dc.seen[2], "{\"c\":3}");
+    // File should now be empty (all deleted).
+    EXPECT_TRUE(read_lines(p).empty());
+    std::remove(p.c_str());
+}
+
+TEST(CApiTest, DrainQueueKeepsLinesWhenCbReturnsZero) {
+    const auto p = tmp_queue_path("keep-all");
+    write_lines(p, {"{\"x\":1}", "{\"y\":2}"});
+    DrainCapture dc;
+    dc.delete_after_seen = false;
+    const int n = sentlog_drain_queue(nullptr, p.c_str(), &on_drain, &dc);
+    EXPECT_EQ(n, 2);
+    EXPECT_EQ(dc.seen.size(), 2u);
+    // File preserved.
+    EXPECT_EQ(read_lines(p).size(), 2u);
+    std::remove(p.c_str());
+}
+
+TEST(CApiTest, DrainQueueMissingFileReturnsZero) {
+    EXPECT_EQ(sentlog_drain_queue(nullptr,
+                                  "/tmp/sentlog-drain-does-not-exist.ndjson",
+                                  &on_drain, nullptr),
+              0);
+}
+
+TEST(CApiTest, DrainQueueNullArgsReturnZero) {
+    EXPECT_EQ(sentlog_drain_queue(nullptr, nullptr, &on_drain, nullptr), 0);
+    EXPECT_EQ(sentlog_drain_queue(nullptr, "/tmp/whatever", nullptr, nullptr),
+              0);
 }
 
 TEST(CApiTest, NullHandleOperationsAreSafe) {

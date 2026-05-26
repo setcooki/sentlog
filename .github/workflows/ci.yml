@@ -159,3 +159,22 @@ jobs:
           test -f docs/technical-specification.md
           test -f docs/rollout-plan.md
           echo "All required docs present."
+
+  evidence-verifier:
+    name: tools (evidence-verifier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install verifier deps
+        working-directory: tools/evidence-verifier
+        run: pip install -r requirements.txt
+
+      - name: Self-test (sign-then-verify round trip with RFC 8032 vector 1)
+        working-directory: tools/evidence-verifier
+        run: python3 selftest.py

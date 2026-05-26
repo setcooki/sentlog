@@ -7,11 +7,14 @@
 
 #include "sentlog/sentlog.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <new>
 #include <string>
+#include <vector>
 
 #include "internal/config.h"
 #include "internal/state.h"
@@ -244,12 +247,42 @@ int sentlog_drain_queue(sentlog_handle_t* handle,
                         const char* path,
                         sentlog_drain_cb_t cb,
                         void* userdata) {
-    (void)handle;
-    (void)path;
-    (void)cb;
-    (void)userdata;
-    // Phase 4. Stub returns "drained zero envelopes."
-    return 0;
+    (void)handle;  // handle is reserved for future telemetry; not needed today
+    if (path == nullptr || cb == nullptr) return 0;
+
+    // Phase 4i: read the NDJSON queue file (written by 4d2's
+    // LocalQueueSink) line-by-line. Each line is one envelope. The
+    // cb returns 1 to delete the envelope from the queue, 0 to
+    // keep it for a later drain. After the loop we rewrite the
+    // file with the kept lines via tmp-and-rename so the drain is
+    // atomic against a crash mid-write.
+    std::ifstream in(path);
+    if (!in.is_open()) return 0;
+
+    std::vector<std::string> kept;
+    std::string line;
+    int delivered = 0;
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        ++delivered;
+        const int keep = cb(line.c_str(), line.size(), userdata) == 1
+            ? 0   // cb returned 1 → delete
+            : 1;  // cb returned 0 (or anything else) → keep
+        if (keep) kept.push_back(line);
+    }
+    in.close();
+
+    // Rewrite if we removed any entries.
+    if (kept.size() != static_cast<size_t>(delivered)) {
+        const std::string tmp = std::string(path) + ".drain.tmp";
+        {
+            std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+            if (!out.is_open()) return delivered;  // can't rewrite; leave file as-is
+            for (const auto& k : kept) out << k << "\n";
+        }
+        std::rename(tmp.c_str(), path);
+    }
+    return delivered;
 }
 
 void sentlog_string_free(char* str) {
