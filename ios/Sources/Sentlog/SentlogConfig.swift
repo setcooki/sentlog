@@ -58,12 +58,27 @@ public struct SentlogConfig: Codable, Sendable, Equatable {
     //
     // Defaults to the published Sentlog manifest. Overriding requires
     // overriding BOTH together; the C++ core rejects mixed-source
-    // configuration at init. `manifestPubkeys` is `[active, standby]`,
-    // each entry the base64-encoded raw 32-byte Ed25519 pubkey.
+    // configuration at init. `manifestPubkeys` is `[active, standby]`
+    // — exactly two entries, each the base64-encoded raw 32-byte
+    // Ed25519 pubkey. Validated at `Sentlog.initialize` time via
+    // `validate()` below.
     public var manifestUrl:     String?
     public var manifestPubkeys: [String]?
 
     public init() {}
+
+    /// Throws if any field is in a structurally invalid state. Called
+    /// from `Sentlog.initialize` so the integrator gets the error at
+    /// initialization, not when reaching the C++ parser. Cross-field
+    /// + business-logic validation stays in the C++ layer (single
+    /// source of truth).
+    internal func validate() throws {
+        if let pks = manifestPubkeys, pks.count != 2 {
+            throw SentlogError(
+                status: SENTLOG_ERR_INVALID_CONFIG,
+                context: "manifestPubkeys must have exactly 2 entries (active, standby); got \(pks.count)")
+        }
+    }
 
     private enum CodingKeys: String, CodingKey {
         case livenessThreshold       = "liveness_threshold"

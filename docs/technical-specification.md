@@ -122,6 +122,14 @@ object Sentlog {
     suspend fun checkForUpdates(manifestJson: String): UpdateResult
     fun drainQueue(path: String, drain: (String) -> Boolean): Int
     fun modelVersions(): ModelVersions
+
+    fun setSigningKey(secretKey: ByteArray, verificationMethod: String)
+    fun setEnvelopeDispatcher(
+        handler: ((String, String, String, String) -> Unit)?)
+    fun setHardwareSigner(
+        signer: ((ByteArray) -> ByteArray?)?,
+        cryptosuite: String = "ecdsa-jcs-2019",
+        verificationMethod: String = "")
 }
 ```
 
@@ -140,6 +148,15 @@ public enum Sentlog {
     public static func checkForUpdates(manifestJson: String) async throws -> UpdateResult
     public static func drainQueue(path: String, drain: (Envelope) -> Bool) -> Int
     public static func modelVersions() -> ModelVersions
+
+    public static func setSigningKey(_ secretKey: Data,
+                                     verificationMethod: String) throws
+    public static func setEnvelopeDispatcher(
+        _ handler: ((String, String, String, String) -> Void)?) throws
+    public static func setHardwareSigner(
+        _ signer: ((Data) -> Data?)?,
+        cryptosuite: String = "ecdsa-jcs-2019",
+        verificationMethod: String = "") throws
 }
 ```
 
@@ -331,7 +348,9 @@ SentlogConfig {
     // model OTA (advanced — defaults point at the published Sentlog manifest)
     manifest_url:          URL? = null
     manifest_pubkeys:      List<Ed25519PublicKey>? = null
-        // overriding either requires overriding both.
+        // when set, must contain exactly 2 entries: [active, standby].
+        // overriding either requires overriding both. Wire format on
+        // JSON: list of base64-encoded raw 32-byte Ed25519 pubkeys.
 
     // session metadata
     session_id:               String? = null

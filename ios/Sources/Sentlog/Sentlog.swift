@@ -66,6 +66,11 @@ public enum Sentlog {
         config: SentlogConfig,
         onTelemetry: ((TelemetryEvent) -> Void)? = nil
     ) throws {
+        // Validate structural invariants (e.g. manifest_pubkeys arity)
+        // before destroying the previous handle, so a bad config
+        // doesn't leave the SDK in an "uninitialised" state.
+        try config.validate()
+
         stateLock.lock()
         defer { stateLock.unlock() }
 

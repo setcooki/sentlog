@@ -55,11 +55,23 @@ public data class SentlogConfig(
     // --- OTA model updates (spec §1.20) ---
     // Defaults to the published Sentlog manifest. Overriding requires
     // overriding BOTH together; the C++ core rejects mixed-source
-    // configuration at init. `manifestPubkeys` is `[active, standby]`,
-    // each entry the base64-encoded raw 32-byte Ed25519 pubkey.
+    // configuration at init. `manifestPubkeys` is `[active, standby]`
+    // — exactly two entries, each the base64-encoded raw 32-byte
+    // Ed25519 pubkey.
     @SerialName("manifest_url")     val manifestUrl:     String?       = null,
     @SerialName("manifest_pubkeys") val manifestPubkeys: List<String>? = null,
-)
+) {
+    init {
+        // Fail-fast at config construction rather than at C++ parse
+        // time so the integrator's stack trace points at the bad
+        // value, not at Sentlog.initialize.
+        if (manifestPubkeys != null && manifestPubkeys.size != 2) {
+            throw IllegalArgumentException(
+                "manifestPubkeys must have exactly 2 entries (active, standby); " +
+                "got ${manifestPubkeys.size}")
+        }
+    }
+}
 
 @Serializable
 public data class Forwarder(

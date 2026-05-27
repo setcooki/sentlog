@@ -508,13 +508,17 @@ sentlog_status_t State::check_for_updates(const uint8_t* manifest_bytes,
         out["applied"]      = false;
         out["error"]        = err_str;
         *update_json_out    = out.dump();
-        // ManifestVerifyFailed telemetry per spec §3.2. attempted_version
-        // is the parsed manifest_version when JSON shape was valid
-        // enough to extract it; empty otherwise.
+        // ManifestVerifyFailed telemetry per spec §3.2. The optional
+        // attempted_version is the parsed manifest_version when the
+        // JSON shape was valid enough to extract it; omitted on parse
+        // failure so decoders that distinguish present-vs-empty see
+        // an honest signal.
         json ev;
-        ev["type"]              = "ManifestVerifyFailed";
-        ev["reason"]            = err_str;
-        ev["attempted_version"] = manifest.manifest_version;  // empty on parse failure
+        ev["type"]   = "ManifestVerifyFailed";
+        ev["reason"] = err_str;
+        if (!manifest.manifest_version.empty()) {
+            ev["attempted_version"] = manifest.manifest_version;
+        }
         emit_telemetry(ev.dump());
         return SENTLOG_ERR_MANIFEST_VERIFY;
     }

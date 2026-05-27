@@ -281,7 +281,7 @@ export type TelemetryEvent =
     | { type: "PipelineTiming";            stage: string; duration_ms: number }
     | { type: "ScoreHistogram";            field: string; bucket: string }
     | { type: "ForwarderOutcome";          forwarder_name: string; outcome: ForwarderOutcomeKind; attempts: number }
-    | { type: "ManifestVerifyFailed";      reason: string; attempted_version: string }
+    | { type: "ManifestVerifyFailed";      reason: string; attempted_version?: string }
     | { type: "ModelLoadError";            model: string; reason: string }
     | { type: "PermissionDenied";          permission: PermissionKind }
     | { type: "CaptureAborted";            reason: string }
