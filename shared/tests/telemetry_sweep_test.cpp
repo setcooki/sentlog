@@ -75,8 +75,8 @@ TEST(TelemetrySweepTest, EvaluateEmitsPipelineTimingAndScoreHistograms) {
     // engagement.score. Pipeline always populates all three (even at
     // 0.0) so all three fire.
     EXPECT_EQ(histos.size(), 3u);
-    for (const auto& h : histos) {
-        const auto bucket = h["bucket"].get<std::string>();
+    for (const auto& histo : histos) {
+        const auto bucket = histo["bucket"].get<std::string>();
         // Bucket is "0.0" through "1.0" — three chars, one decimal.
         EXPECT_EQ(bucket.size(), 3u);
         EXPECT_EQ(bucket[1], '.');
