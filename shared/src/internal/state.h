@@ -268,6 +268,14 @@ public:
 private:
     void emit_telemetry(const std::string& event_json) noexcept;
 
+    // Phase 7f: extract top-level scores from the pipeline result JSON
+    // and emit one PipelineTiming + one ScoreHistogram per top score
+    // (liveness.score, presence.summary, engagement.score). Bucketed
+    // to 0.1 width so the integrator can aggregate without seeing the
+    // raw scores. Telemetry remains opt-in (telemetry_cb_ may be null).
+    void emit_pipeline_telemetry(const std::string& result_json,
+                                 int64_t pipeline_ms) noexcept;
+
     Config config_;
     sentlog_telemetry_cb_t telemetry_cb_;
     void*                  telemetry_userdata_;

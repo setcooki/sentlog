@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <random>
@@ -66,10 +67,20 @@ sentlog_status_t State::start_capture() {
 }
 
 sentlog_status_t State::cancel() {
-    // cancel is idempotent — any phase returns to idle.
-    phase_.store(static_cast<int>(LifecyclePhase::Idle),
-                 std::memory_order_release);
+    // cancel is idempotent — any phase returns to idle. Emit the
+    // CaptureAborted telemetry only when we actually moved out of an
+    // active phase, so a defensive cancel-on-idle stays silent.
+    const int prev_phase = phase_.exchange(
+        static_cast<int>(LifecyclePhase::Idle),
+        std::memory_order_acq_rel);
     ring_.reset();
+    if (prev_phase != static_cast<int>(LifecyclePhase::Idle)) {
+        json ev;
+        ev["type"]   = "CaptureAborted";
+        ev["reason"] = (prev_phase == static_cast<int>(LifecyclePhase::Capturing))
+            ? "cancel_during_capture" : "cancel_during_evaluate";
+        emit_telemetry(ev.dump());
+    }
     return SENTLOG_OK;
 }
 
@@ -92,10 +103,19 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
         const auto pushed_motion     = snapshot_motion_frames();
         const auto pushed_face       = snapshot_face_frames();
         const auto route             = audio_route();
+        const auto t_pipeline_start  = std::chrono::steady_clock::now();
         *result_json_out = Pipeline::run(config_, ring_,
                                          pushed_vad, pushed_liveness,
                                          pushed_transcript, pushed_motion,
                                          pushed_face, route);
+        const auto t_pipeline_end    = std::chrono::steady_clock::now();
+        const int64_t pipeline_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                t_pipeline_end - t_pipeline_start).count();
+        // Phase 7f telemetry sweep: PipelineTiming for the evaluate
+        // stage + ScoreHistogram for the three top-level scores.
+        emit_pipeline_telemetry(*result_json_out, pipeline_ms);
+
         // Phase 4d: dispatch envelopes for each configured forwarder
         // BEFORE the per-state cleanup below. Failures inside
         // dispatch_envelopes are absorbed (continue per forwarder)
@@ -357,6 +377,67 @@ void State::emit_telemetry(const std::string& event_json) noexcept {
     telemetry_cb_(event_json.c_str(), telemetry_userdata_);
 }
 
+void State::emit_pipeline_telemetry(const std::string& result_json,
+                                    int64_t pipeline_ms) noexcept {
+    if (telemetry_cb_ == nullptr) return;
+    try {
+        // PipelineTiming — stage="evaluate" covers the whole
+        // Pipeline::run wall-clock. Per-substage timings (vad,
+        // transcript_assembly, prosody, fingerprint) can layer on top
+        // in a future chunk; this is the one most integrators want.
+        {
+            json ev;
+            ev["type"]        = "PipelineTiming";
+            ev["stage"]       = "evaluate";
+            ev["duration_ms"] = pipeline_ms;
+            emit_telemetry(ev.dump());
+        }
+
+        // ScoreHistogram — one event per top-level score, bucketed to
+        // 0.1 width. Bucket string is the lower bound: "0.0", "0.1",
+        // ... "1.0". This gives integrators a histogram view without
+        // ever surfacing the raw score value (no PII leak; the score
+        // is non-PII but the discretisation here keeps telemetry
+        // permanently coarse-grained).
+        auto bucket_for = [](float v) -> std::string {
+            if (v < 0.0f) v = 0.0f;
+            if (v > 1.0f) v = 1.0f;
+            const int b = static_cast<int>(v * 10.0f);  // 0..10
+            const float lo = static_cast<float>(b) / 10.0f;
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "%.1f", static_cast<double>(lo));
+            return std::string(buf);
+        };
+        auto emit_bucket = [&](const char* field, float v) {
+            json ev;
+            ev["type"]   = "ScoreHistogram";
+            ev["field"]  = field;
+            ev["bucket"] = bucket_for(v);
+            emit_telemetry(ev.dump());
+        };
+
+        const auto r = json::parse(result_json);
+        if (r.contains("liveness") && r["liveness"].contains("score") &&
+            r["liveness"]["score"].is_number()) {
+            emit_bucket("liveness.score",
+                        r["liveness"]["score"].get<float>());
+        }
+        if (r.contains("presence") && r["presence"].contains("summary") &&
+            r["presence"]["summary"].is_number()) {
+            emit_bucket("presence.summary",
+                        r["presence"]["summary"].get<float>());
+        }
+        if (r.contains("engagement") && r["engagement"].contains("score") &&
+            r["engagement"]["score"].is_number()) {
+            emit_bucket("engagement.score",
+                        r["engagement"]["score"].get<float>());
+        }
+    } catch (...) {
+        // Telemetry must never take down evaluate. Swallow any JSON
+        // parse / lookup error silently.
+    }
+}
+
 // --- Phase 7: OTA manifest verification --------------------------
 
 namespace {
@@ -422,10 +503,19 @@ sentlog_status_t State::check_for_updates(const uint8_t* manifest_bytes,
     out["previous_version"] = previous_version;
 
     if (vs != ManifestVerifyStatus::OK) {
+        const std::string err_str = verify_error_string(vs);
         out["update_found"] = false;
         out["applied"]      = false;
-        out["error"]        = verify_error_string(vs);
+        out["error"]        = err_str;
         *update_json_out    = out.dump();
+        // ManifestVerifyFailed telemetry per spec §3.2. attempted_version
+        // is the parsed manifest_version when JSON shape was valid
+        // enough to extract it; empty otherwise.
+        json ev;
+        ev["type"]              = "ManifestVerifyFailed";
+        ev["reason"]            = err_str;
+        ev["attempted_version"] = manifest.manifest_version;  // empty on parse failure
+        emit_telemetry(ev.dump());
         return SENTLOG_ERR_MANIFEST_VERIFY;
     }
 
@@ -558,6 +648,18 @@ void State::dispatch_envelopes(const std::string& result_json) {
         ev["forwarder_name"] = fw_name;
         ev["outcome"]        = "dropped";
         ev["attempts"]       = 0;
+        emit_telemetry(ev.dump());
+    };
+    auto emit_ok = [&](const std::string& fw_name) {
+        // Phase 7f: emit ForwarderOutcome=ok on every successful
+        // delivery (file write or dispatcher call). attempts=1 because
+        // the SDK does not yet implement retry — the binding's HTTP /
+        // webhook client owns retry on the wire.
+        json ev;
+        ev["type"]           = "ForwarderOutcome";
+        ev["forwarder_name"] = fw_name;
+        ev["outcome"]        = "ok";
+        ev["attempts"]       = 1;
         emit_telemetry(ev.dump());
     };
 
@@ -702,7 +804,8 @@ void State::dispatch_envelopes(const std::string& result_json) {
                 }
                 ::flock(lockfd, LOCK_UN);
                 ::close(lockfd);
-                if (!wrote) emit_skip(fw.name, "local_queue_open_failed");
+                if (wrote) emit_ok(fw.name);
+                else       emit_skip(fw.name, "local_queue_open_failed");
             } catch (...) {
                 emit_skip(fw.name, "local_queue_open_failed");
             }
@@ -715,6 +818,12 @@ void State::dispatch_envelopes(const std::string& result_json) {
                fw.sink_json.c_str(),
                envelope_json.c_str(),
                cb_data);
+            // The dispatcher is fire-and-forget from the C++ core's
+            // perspective — the integrator's HTTP / webhook client
+            // owns wire-level retry + status. We report "ok" once the
+            // envelope crossed the FFI boundary; that's what the
+            // shared core can verify.
+            emit_ok(fw.name);
         } else {
             // Without a registered dispatcher, non-local-queue sinks
             // can't be delivered. Tell the integrator rather than
