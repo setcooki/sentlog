@@ -14,13 +14,16 @@
     "README.md"
   ],
   "scripts": {
-    "build": "echo \"[rn] Phase 0 stub — real build in Phase 6\"",
-    "lint": "echo \"[rn] Phase 0 stub\"",
-    "test": "echo \"[rn] Phase 0 stub\""
+    "build": "tsc -p .",
+    "lint": "tsc -p . --noEmit",
+    "test": "tsc -p . --noEmit"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-native": ">=0.72.0"
+  },
+  "devDependencies": {
+    "typescript": "5.4.5"
   },
   "repository": {
     "type": "git",
