@@ -464,6 +464,19 @@ public object Sentlog {
     }
 
     /**
+     * Phase 7.5 convenience overload: register a SDK-provided
+     * [KeyStoreSigner] as the hardware signer. Wires the signer's
+     * sign closure, cryptosuite (always `"ecdsa-jcs-2019"` for the
+     * P-256 path), and `did:key:` verificationMethod in one call.
+     */
+    public fun setHardwareSigner(signer: KeyStoreSigner) {
+        setHardwareSigner(
+            signer.sign,
+            cryptosuite        = "ecdsa-jcs-2019",
+            verificationMethod = signer.verificationMethod)
+    }
+
+    /**
      * Drain a local-queue forwarder file (NDJSON). For each envelope
      * in the file, [drain] is invoked; return `true` to remove the
      * envelope from the queue, `false` to keep it for a later drain.

@@ -96,14 +96,39 @@ it for you.
 
 ## Android (Kotlin)
 
+The SDK ships a `KeyStoreSigner` helper that does AndroidKeyStore
+key creation, StrongBox fallback, and `did:key:` URI derivation for
+you:
+
+```kotlin
+import me.cooki.sentlog.KeyStoreSigner
+import me.cooki.sentlog.Sentlog
+
+val signer = KeyStoreSigner.create(keyAlias = "me.example.myapp.sentlog")
+Sentlog.setHardwareSigner(signer)
+```
+
+That's it. The first call generates an ECDSA-P256 key in the
+AndroidKeyStore under the given alias — StrongBox-backed when the
+device supports it, regular hardware-backed otherwise (the helper
+transparently retries on `StrongBoxUnavailableException`). Subsequent
+calls load the existing key. The signer's `verificationMethod` is a
+`did:key:` URI derived from the public key; `signer.publicKeyRaw`
+exposes the raw 65-byte uncompressed P-256 bytes; `signer.strongBoxBacked`
+tells you whether the key actually landed in StrongBox.
+
+### Manual wiring (without the helper)
+
+If you need finer control (biometric gating via
+`setUserAuthenticationRequired`, custom alias-rotation policy,
+Ed25519 on API 33+), construct the signer closure yourself:
+
 ```kotlin
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.security.KeyStore
 import java.security.Signature
 
-// 1. Create an ECDSA-P256 (or Ed25519 on API 33+) key in the
-//    AndroidKeyStore, StrongBox-backed when supported.
 val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 if (!keyStore.containsAlias("sentlog.signing")) {
     val kpg = java.security.KeyPairGenerator.getInstance(
@@ -113,28 +138,28 @@ if (!keyStore.containsAlias("sentlog.signing")) {
             KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
         .setAlgorithmParameterSpec(java.security.spec.ECGenParameterSpec("secp256r1"))
         .setDigests(KeyProperties.DIGEST_SHA256)
-        .setIsStrongBoxBacked(true)   // softens to non-StrongBox where unsupported
+        .setIsStrongBoxBacked(true)
+        .setUserAuthenticationRequired(true)   // biometric-gated
         .build()
     kpg.initialize(spec)
     kpg.generateKeyPair()
 }
 
-// 2. Wire the KeyStore-backed signer.
 Sentlog.setHardwareSigner(
     signer = { canonical ->
-        val sig = Signature.getInstance("SHA256withECDSA").apply {
+        Signature.getInstance("SHA256withECDSA").apply {
             initSign(keyStore.getKey("sentlog.signing", null) as java.security.PrivateKey)
             update(canonical)
-        }
-        sig.sign()
+        }.sign()
     },
     cryptosuite = "ecdsa-jcs-2019",
-    verificationMethod = "did:key:zHwSentlogYourPubKey"
+    verificationMethod = "did:key:zYourPubKeyMultibase",
 )
 ```
 
-For API 33+ devices, swap `ECGenParameterSpec("secp256r1")` for
-`EdDSAParameterSpec` and `cryptosuite = "eddsa-jcs-2022"`.
+For Ed25519 on API 33+, swap the algorithm parameter spec for an
+`EdDSAParameterSpec` and set `cryptosuite = "eddsa-jcs-2022"`. The
+SDK accepts both cryptosuites.
 
 ## Fallback behaviour
 
