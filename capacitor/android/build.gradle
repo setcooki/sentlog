@@ -1,0 +1,33 @@
+// @sentlog/capacitor — Android plugin module.
+//
+// Picked up by Capacitor at app build time via the consumer's
+// `capacitor.config.json`. The plugin class itself
+// (SentlogPlugin.kt) is registered via @CapacitorPlugin; Capacitor's
+// gradle tooling adds this as a subproject and wires the consumer
+// app's gradle to discover it.
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+    namespace "me.cooki.sentlog.capacitor"
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 24
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+dependencies {
+    implementation "com.getcapacitor:capacitor-android:5.0.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0"
+    implementation "me.cooki.sentlog:sentlog:0.0.0"
+}

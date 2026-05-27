@@ -136,10 +136,11 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Validate package.json
+      - name: Install + typecheck + build
         working-directory: capacitor
         run: |
           node -e "require('./package.json')"
+          npm install --no-audit --no-fund --silent
           npm run lint --silent
           npm run build --silent
           npm test --silent

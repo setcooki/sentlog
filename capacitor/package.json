@@ -3,9 +3,9 @@
   "version": "0.0.0",
   "description": "Capacitor plugin for Sentlog — universal device-first evidence and presence SDK",
   "license": "MIT",
-  "main": "dist/plugin.cjs.js",
-  "module": "dist/esm/index.js",
-  "types": "dist/esm/index.d.ts",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
   "files": [
     "dist",
     "src",
@@ -15,12 +15,15 @@
     "README.md"
   ],
   "scripts": {
-    "build": "echo \"[capacitor] Phase 0 stub — real build in Phase 6\"",
-    "lint": "echo \"[capacitor] Phase 0 stub\"",
-    "test": "echo \"[capacitor] Phase 0 stub\""
+    "build": "tsc -p .",
+    "lint": "tsc -p . --noEmit",
+    "test": "tsc -p . --noEmit"
   },
   "peerDependencies": {
     "@capacitor/core": ">=5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "5.4.5"
   },
   "capacitor": {
     "ios": {

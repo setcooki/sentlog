@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  @sentlog/capacitor plugin module manifest. Permissions inherit
+  from the underlying me.cooki.sentlog:sentlog AAR at manifest
+  merge time. Integrators still need RECORD_AUDIO / CAMERA runtime
+  permissions per docs/permissions.md.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
