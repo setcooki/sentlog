@@ -43,6 +43,7 @@ let package = Package(
                 "src/internal/prosody.cpp",
                 "src/internal/envelope.cpp",
                 "src/internal/signing.cpp",
+                "src/internal/ota.cpp",
                 "src/internal/vad/energy_vad.cpp",
                 "external/tweetnacl/tweetnacl.c",
                 "external/tweetnacl/randombytes_stub.c",

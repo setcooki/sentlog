@@ -533,6 +533,31 @@ OTA model files transit over HTTPS *and* are verified against an
 Ed25519-signed manifest. Two pinned public keys ("active" + "standby"),
 rotation by overlap.
 
+**Manifest wire format (schema_version "1"):**
+
+```json
+{
+  "manifest": {
+    "schema_version":   "1",
+    "manifest_version": "0.0.5-phase7",
+    "bundle_url":       "https://.../models-0.0.5.tar",
+    "bundle_sha256":    "<lowercase hex, 64 chars>",
+    "bundle_size":      123456,
+    "issued_at_ms":     1735689600000
+  },
+  "key_id":           "active",
+  "signature_b64url": "<base64url, no padding>"
+}
+```
+
+The signature covers the JCS-canonicalised (RFC 8785) bytes of the
+inner `manifest` object — the same canonicalisation rule used for
+envelope signing (`eddsa-jcs-2022`). `key_id` selects which of the
+two pinned pubkeys verifies the signature; values outside `"active"`
+/ `"standby"` are rejected outright. `bundle_sha256` + `bundle_size`
+are the integrity check the binding applies to the downloaded bundle
+after manifest verification succeeds.
+
 ### 5.2 Forwarder-driven privacy posture
 
 No SDK-side default transmits anything. Posture is determined entirely

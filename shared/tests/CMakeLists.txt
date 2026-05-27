@@ -24,6 +24,7 @@ add_executable(sentlog_tests
     prosody_test.cpp
     envelope_test.cpp
     signing_test.cpp
+    ota_test.cpp
 )
 target_link_libraries(sentlog_tests
     PRIVATE

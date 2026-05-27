@@ -45,6 +45,7 @@ constexpr size_t kEd25519PublicKeyBytes = 32;
 constexpr size_t kEd25519SignatureBytes = 64;
 
 using Ed25519SecretKey = std::array<uint8_t, kEd25519SecretKeyBytes>;
+using Ed25519PublicKey = std::array<uint8_t, kEd25519PublicKeyBytes>;
 
 /// JCS — RFC 8785 JSON Canonicalisation Scheme. Deterministic
 /// serialisation: object keys sorted, no insignificant whitespace,
