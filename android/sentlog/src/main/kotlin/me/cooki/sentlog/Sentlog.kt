@@ -288,25 +288,32 @@ public object Sentlog {
 
     /**
      * Check for an OTA model update. Integrator-triggered; never
-     * autonomous.
+     * autonomous. Fetches the configured manifest URL over HTTPS and
+     * verifies the Ed25519 signature against the two pinned pubkeys
+     * — both as configured in [SentlogConfig] (when overridden) or
+     * the Sentlog-published defaults.
      *
-     * `manifestJson` is the bytes of a fetched signed-manifest envelope
-     * (wire format documented in spec §5.1). The C++ core verifies the
-     * Ed25519 signature against the two pinned pubkeys configured via
-     * [SentlogConfig.manifestPubkeys] — or, when absent, the
-     * built-in Sentlog defaults.
+     * Throws [IllegalStateException] on fetch failure (DNS, HTTP
+     * non-2xx, oversize response) or verification failure.
+     */
+    public suspend fun checkForUpdates(): UpdateResult =
+        withContext(Dispatchers.IO) {
+            val cfg = currentConfig
+                ?: error("checkForUpdates before initialize")
+            val url = cfg.manifestUrl ?: DEFAULT_MANIFEST_URL
+            val bytes = fetchManifestHttps(url)
+            checkForUpdates(String(bytes, Charsets.UTF_8))
+        }
+
+    /**
+     * Check for an OTA model update by verifying a pre-fetched
+     * signed-manifest envelope (wire format in spec §5.1). Use this
+     * overload when integrators want to drive the fetch itself
+     * (custom HTTP client, caching, mocking in tests). The no-arg
+     * overload above is the common path.
      *
-     * The HTTPS fetch of the manifest is the integrator's
-     * responsibility today (7b-i ships verification only). A
-     * no-argument overload that performs the fetch itself lands in
-     * 7b-ii.
-     *
-     * On verification failure the returned [UpdateResult] has
-     * `updateFound = false`, `applied = false`, and `error` set to
-     * the failure-mode string (see [UpdateResult.error] for the
-     * enumeration), and this method throws [IllegalStateException]
-     * carrying the same payload — integrators that want the typed
-     * payload can read it from the exception's message.
+     * On verification failure throws [IllegalStateException] carrying
+     * the failure-mode string from the envelope's `error` field.
      */
     public suspend fun checkForUpdates(manifestJson: String): UpdateResult =
         withContext(Dispatchers.IO) {
@@ -522,4 +529,56 @@ public object Sentlog {
     /** Whisper transcribes up to 30 s of audio — matches the ring
      *  buffer size in shared/src/internal/state.h. */
     private const val WHISPER_MAX_SAMPLES: Int = 16_000 * 30
+
+    /** Sentlog-published manifest URL. Placeholder until the v1.0
+     *  manifest-publishing infrastructure goes live. Integrators
+     *  shipping OTA today override via [SentlogConfig.manifestUrl] +
+     *  [SentlogConfig.manifestPubkeys] (paired override). */
+    private const val DEFAULT_MANIFEST_URL: String =
+        "https://sentlog.cooki.me/manifest/v1.json"
+
+    /** Cap response body to keep a malicious or misconfigured manifest
+     *  endpoint from exhausting heap. Real manifests are <2 KB. */
+    private const val MANIFEST_MAX_BYTES: Int = 64 * 1024
+    private const val MANIFEST_TIMEOUT_MS: Int = 10_000
+
+    /** HTTPS-only manifest fetch using java.net stdlib — no extra
+     *  dependency. Throws [IllegalStateException] on non-2xx, oversize,
+     *  non-HTTPS, or timeout. */
+    private fun fetchManifestHttps(url: String): ByteArray {
+        if (!url.startsWith("https://")) {
+            throw IllegalStateException("manifest URL must be https")
+        }
+        val conn = (java.net.URL(url).openConnection()
+            as java.net.HttpURLConnection).apply {
+            connectTimeout = MANIFEST_TIMEOUT_MS
+            readTimeout    = MANIFEST_TIMEOUT_MS
+            requestMethod  = "GET"
+            doInput        = true
+            instanceFollowRedirects = false
+        }
+        try {
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                throw IllegalStateException(
+                    "manifest fetch HTTP $code from $url")
+            }
+            conn.inputStream.use { stream ->
+                val out = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(8 * 1024)
+                while (true) {
+                    val n = stream.read(buf)
+                    if (n < 0) break
+                    if (out.size() + n > MANIFEST_MAX_BYTES) {
+                        throw IllegalStateException(
+                            "manifest oversize (>$MANIFEST_MAX_BYTES bytes)")
+                    }
+                    out.write(buf, 0, n)
+                }
+                return out.toByteArray()
+            }
+        } finally {
+            conn.disconnect()
+        }
+    }
 }

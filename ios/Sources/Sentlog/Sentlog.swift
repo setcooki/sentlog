@@ -319,18 +319,33 @@ public enum Sentlog {
     }
 
     /// Check for an OTA model update. Integrator-triggered; never
-    /// autonomous.
-    ///
-    /// `manifestJson` is the bytes of a fetched signed-manifest
-    /// envelope (wire format documented in spec §5.1). The C++ core
+    /// autonomous. Fetches the configured manifest URL over HTTPS and
     /// verifies the Ed25519 signature against the two pinned pubkeys
-    /// configured via `SentlogConfig.manifestPubkeys` — or, when
-    /// absent, the built-in Sentlog defaults.
-    ///
-    /// The HTTPS fetch of the manifest is the integrator's
-    /// responsibility today (7b-i ships verification only). A
-    /// no-argument overload that performs the fetch itself lands in
-    /// 7b-ii.
+    /// — both as configured in `SentlogConfig` (when overridden) or
+    /// the Sentlog-published defaults.
+    public static func checkForUpdates() async throws -> UpdateResult {
+        let cfg = try { () throws -> SentlogConfig in
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard let cfg = currentConfig else {
+                throw SentlogError(status: SENTLOG_ERR_INVALID_STATE,
+                                   context: "checkForUpdates: not initialized")
+            }
+            return cfg
+        }()
+        let url = cfg.manifestUrl ?? Self.defaultManifestUrl
+        let bytes = try await Self.fetchManifestHttps(urlString: url)
+        guard let asString = String(data: bytes, encoding: .utf8) else {
+            throw SentlogError(status: SENTLOG_ERR_INTERNAL,
+                               context: "checkForUpdates: non-utf8 manifest")
+        }
+        return try await checkForUpdates(manifestJson: asString)
+    }
+
+    /// Check for an OTA model update by verifying a pre-fetched
+    /// signed-manifest envelope (wire format in spec §5.1). Use this
+    /// overload when integrating apps want to drive the fetch itself
+    /// (custom URLSession config, caching, etc.).
     public static func checkForUpdates(manifestJson: String) async throws -> UpdateResult {
         let h = try { () throws -> OpaquePointer in
             stateLock.lock()
@@ -540,6 +555,48 @@ public enum Sentlog {
                                context: "uninitialised")
         }
         return h
+    }
+
+    /// Sentlog-published manifest URL. Placeholder until the v1.0
+    /// manifest-publishing infrastructure goes live. Integrators
+    /// shipping OTA today override via SentlogConfig.manifestUrl +
+    /// manifestPubkeys (paired override).
+    private static let defaultManifestUrl =
+        "https://sentlog.cooki.me/manifest/v1.json"
+
+    private static let manifestMaxBytes = 64 * 1024
+    private static let manifestTimeoutSec: TimeInterval = 10
+
+    /// HTTPS-only manifest fetch via URLSession.shared. Throws
+    /// SentlogError on non-2xx HTTP, oversize response, non-HTTPS,
+    /// or timeout.
+    private static func fetchManifestHttps(urlString: String) async throws -> Data {
+        guard urlString.hasPrefix("https://"),
+              let url = URL(string: urlString) else {
+            throw SentlogError(status: SENTLOG_ERR_INVALID_CONFIG,
+                               context: "manifest URL must be https")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = manifestTimeoutSec
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw SentlogError(status: SENTLOG_ERR_INTERNAL,
+                               context: "manifest fetch: \(error.localizedDescription)")
+        }
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw SentlogError(status: SENTLOG_ERR_INTERNAL,
+                               context: "manifest fetch HTTP \(code) from \(urlString)")
+        }
+        if data.count > manifestMaxBytes {
+            throw SentlogError(status: SENTLOG_ERR_INVALID_CONFIG,
+                               context: "manifest oversize (\(data.count) > \(manifestMaxBytes))")
+        }
+        return data
     }
 
     private static func decode<T: Decodable>(
