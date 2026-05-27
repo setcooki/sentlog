@@ -69,13 +69,13 @@ public class SentlogPlugin: CAPPlugin {
     }
 
     @objc public func destroy(_ call: CAPPluginCall) {
-        do {
-            try Sentlog.setEnvelopeDispatcher(nil)
-            Sentlog.destroy()
-            call.resolve()
-        } catch {
-            call.reject(error.localizedDescription, nil, error)
-        }
+        // setEnvelopeDispatcher(nil) throws when no handle is live;
+        // destroy is documented as idempotent (SentlogBridge.destroy)
+        // so swallow the dispatcher-clear failure if Sentlog is
+        // already destroyed.
+        try? Sentlog.setEnvelopeDispatcher(nil)
+        Sentlog.destroy()
+        call.resolve()
     }
 
     @objc public func getPermissions(_ call: CAPPluginCall) {

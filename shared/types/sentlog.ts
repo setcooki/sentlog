@@ -241,7 +241,7 @@ export interface Permissions {
     camera:     PermissionState;
 }
 
-export type Runtime = "native" | "wasm";
+export type Runtime = "native" | "capacitor" | "react_native" | "web_fallback";
 
 export interface Capabilities {
     audio_capture: boolean;

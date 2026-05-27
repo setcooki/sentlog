@@ -100,9 +100,15 @@ async function drainViaEventBridge(
                                 line: number;
                                 envelope_json: string };
             if (ev.drainRequestId !== drainRequestId) return;
+            // `keep` carries literal keep-semantics — true means
+            // leave the envelope in the queue. handler returns
+            // true=delete per its public contract, so we invert
+            // once here and ship the literal keep flag over the
+            // wire. Native inverts again when feeding the C ABI
+            // cb (which expects 1=delete).
             let keep = true;
             try {
-                keep = !handler(ev.envelope_json);  // handler returns true=delete
+                keep = !handler(ev.envelope_json);
             } catch (err) {
                 console.error("[sentlog] drain handler threw; keeping envelope", err);
                 keep = true;
@@ -110,7 +116,7 @@ async function drainViaEventBridge(
             await Native.drainQueueReply({
                 drainRequestId,
                 line: ev.line,
-                keep: !keep,
+                keep,
             });
         });
     try {
@@ -191,13 +197,20 @@ export const Sentlog: SentlogBridge = {
 };
 
 /** Subscribe to native telemetry events (spec §3.2). Returns a
- *  PluginListenerHandle; call `.remove()` to unsubscribe. */
+ *  PluginListenerHandle; call `.remove()` to unsubscribe.
+ *
+ *  Capacitor's notifyListeners requires an object payload (JSObject
+ *  on Kotlin / [String: Any] on Swift), so the native plugin wraps
+ *  the JSON-encoded event string in `{event: "<json>"}`. We unwrap
+ *  here. */
 export function onTelemetry(
     handler: (ev: TelemetryEvent) => void,
 ): Promise<PluginListenerHandle> {
     return Native.addListener("SentlogTelemetry", (raw: unknown) => {
+        const wrap = raw as { event?: string };
+        if (typeof wrap.event !== "string") return;
         try {
-            handler(JSON.parse(raw as string) as TelemetryEvent);
+            handler(JSON.parse(wrap.event) as TelemetryEvent);
         } catch (err) {
             console.error("[sentlog] failed to parse telemetry event", err);
         }

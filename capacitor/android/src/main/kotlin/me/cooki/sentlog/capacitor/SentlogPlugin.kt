@@ -99,8 +99,12 @@ class SentlogPlugin : Plugin() {
 
     @PluginMethod
     fun destroy(call: PluginCall) {
+        // setEnvelopeDispatcher(null) throws when no handle is live;
+        // destroy is documented as idempotent (SentlogBridge.destroy)
+        // so swallow the dispatcher-clear failure if Sentlog is
+        // already destroyed.
+        runCatching { Sentlog.setEnvelopeDispatcher(null) }
         try {
-            Sentlog.setEnvelopeDispatcher(null)
             Sentlog.destroy()
             call.resolve()
         } catch (t: Throwable) {

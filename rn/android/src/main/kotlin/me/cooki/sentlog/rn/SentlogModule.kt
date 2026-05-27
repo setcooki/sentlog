@@ -102,8 +102,12 @@ class SentlogModule(private val reactContext: ReactApplicationContext)
 
     @ReactMethod
     fun destroy(promise: Promise) {
+        // setEnvelopeDispatcher(null) throws when no handle is live;
+        // destroy is documented as idempotent (SentlogBridge.destroy)
+        // so swallow the dispatcher-clear failure if Sentlog is
+        // already destroyed.
+        runCatching { Sentlog.setEnvelopeDispatcher(null) }
         runCatching {
-            Sentlog.setEnvelopeDispatcher(null)
             Sentlog.destroy()
             promise.resolve(null)
         }.onFailure { promise.reject("destroy", it.message, it) }

@@ -90,13 +90,13 @@ public class SentlogModule: RCTEventEmitter {
 
     @objc public func destroy(_ resolve: @escaping RCTPromiseResolveBlock,
                               rejecter reject: @escaping RCTPromiseRejectBlock) {
-        do {
-            try Sentlog.setEnvelopeDispatcher(nil)
-            Sentlog.destroy()
-            resolve(nil)
-        } catch {
-            reject("destroy", error.localizedDescription, error)
-        }
+        // setEnvelopeDispatcher(nil) throws when no handle is live;
+        // destroy is documented as idempotent (SentlogBridge.destroy)
+        // so swallow the dispatcher-clear failure if Sentlog is
+        // already destroyed.
+        try? Sentlog.setEnvelopeDispatcher(nil)
+        Sentlog.destroy()
+        resolve(nil)
     }
 
     // MARK: getters (JSON strings; JS side parses)

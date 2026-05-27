@@ -115,15 +115,20 @@ async function drainViaEventBridge(
     const sub = emitter.addListener("SentlogDrainEnvelope",
         async (ev: { drainRequestId: string; line: number; envelope_json: string }) => {
             if (ev.drainRequestId !== drainRequestId) return;
+            // `keep` carries literal keep-semantics — true means
+            // leave the envelope in the queue. handler returns
+            // true=delete per its public contract, so we invert
+            // once here and ship the literal keep flag over the
+            // wire. Native side inverts again when feeding the C
+            // ABI cb (which expects 1=delete).
             let keep = true;
             try {
-                keep = !handler(ev.envelope_json);  // handler returns true=delete
+                keep = !handler(ev.envelope_json);
             } catch (err) {
-                // Integrator error → keep, so envelope isn't lost.
                 console.error("[sentlog] drain handler threw; keeping envelope", err);
                 keep = true;
             }
-            await n.drainQueueReply(drainRequestId, ev.line, !keep);
+            await n.drainQueueReply(drainRequestId, ev.line, keep);
         });
 
     try {
