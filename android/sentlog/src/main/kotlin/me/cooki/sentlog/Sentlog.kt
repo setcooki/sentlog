@@ -10,6 +10,7 @@ import me.cooki.sentlog.internal.AudioCapture
 import me.cooki.sentlog.internal.AudioRouteDetector
 import me.cooki.sentlog.internal.DrainCallback
 import me.cooki.sentlog.internal.EnvelopeDispatcher
+import me.cooki.sentlog.internal.HardwareSignerCallback
 import me.cooki.sentlog.internal.MotionCapture
 import me.cooki.sentlog.internal.NativeBridge
 import me.cooki.sentlog.internal.ResultCallback
@@ -414,6 +415,51 @@ public object Sentlog {
         val s = NativeBridge.nativeSetEnvelopeDispatcher(h, adapter)
         if (s != NativeBridge.STATUS_OK) {
             throw IllegalStateException("setEnvelopeDispatcher failed (status=$s)")
+        }
+    }
+
+    /**
+     * Phase 7c: register (or clear, with `null`) the hardware signer.
+     * The `signer` lambda receives the JCS-canonical envelope bytes
+     * and returns the raw signature — ASN.1/DER for ECDSA-P256 (≤72
+     * bytes), 64 bytes for Ed25519. Return `null` on signing failure
+     * (KeyStore unavailable, biometric prompt denied, etc.); the SDK
+     * then falls back to the software Ed25519 key registered via
+     * [setSigningKey] and emits a `HardwareSigningUnavailable`
+     * telemetry event — unless [SentlogConfig.hardwareSigningRequired]
+     * is true, in which case the envelope is dropped with a
+     * `ForwarderOutcome=dropped` telemetry event.
+     *
+     * `cryptosuite` must be either `"ecdsa-jcs-2019"` (Secure Enclave
+     * on iOS / KeyStore ECDSA-P256 on Android API 31-32) or
+     * `"eddsa-jcs-2022"` (Android KeyStore Ed25519, API 33+).
+     * `verificationMethod` is written into proof.verificationMethod —
+     * typically a `did:key:` URI the verifier resolves to the public
+     * key.
+     *
+     * The integrator owns the actual KeyStore key today; a
+     * SDK-provided `KeyStoreSigner` helper lands in Phase 7.5.
+     */
+    @Synchronized
+    public fun setHardwareSigner(
+        signer: ((messageBytes: ByteArray) -> ByteArray?)?,
+        cryptosuite: String = "ecdsa-jcs-2019",
+        verificationMethod: String = "",
+    ) {
+        val h = requireHandle()
+        val adapter = signer?.let {
+            object : HardwareSignerCallback() {
+                override fun onSign(messageBytes: ByteArray): ByteArray? =
+                    it(messageBytes)
+            }
+        }
+        val s = NativeBridge.nativeSetHardwareSigner(
+            h,
+            adapter,
+            if (signer == null) null else cryptosuite,
+            if (signer == null) null else verificationMethod)
+        if (s != NativeBridge.STATUS_OK) {
+            throw IllegalStateException("setHardwareSigner failed (status=$s)")
         }
     }
 

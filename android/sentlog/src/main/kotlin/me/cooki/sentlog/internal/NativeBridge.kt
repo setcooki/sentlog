@@ -98,6 +98,18 @@ internal object NativeBridge {
     @JvmStatic external fun nativeSetEnvelopeDispatcher(
         handle: Long, dispatcher: EnvelopeDispatcher?,
     ): Int
+
+    /** Phase 7c: install (or clear, when [signer] == null) the
+     *  per-handle hardware signer. `cryptosuite` must be one of
+     *  `"ecdsa-jcs-2019"` (Secure Enclave / KeyStore ECDSA-P256) or
+     *  `"eddsa-jcs-2022"` (Android API 33+ KeyStore Ed25519);
+     *  unrecognised values are rejected with INVALID_CONFIG. */
+    @JvmStatic external fun nativeSetHardwareSigner(
+        handle: Long,
+        signer: HardwareSignerCallback?,
+        cryptosuite: String?,
+        verificationMethod: String?,
+    ): Int
 }
 
 /** Invoked by JNI on the SDK's I/O thread. */
@@ -133,4 +145,12 @@ internal abstract class EnvelopeDispatcher {
         sinkJson: String,
         envelopeJson: String,
     )
+}
+
+/** Phase 7c: invoked by JNI when the SDK wants to sign an envelope
+ *  via hardware. Receives the JCS-canonical envelope bytes; returns
+ *  the raw signature (≤72 B ECDSA-P256 DER, or 64 B Ed25519) or null
+ *  on signing failure. Long-lived (matching EnvelopeDispatcher). */
+internal abstract class HardwareSignerCallback {
+    abstract fun onSign(messageBytes: ByteArray): ByteArray?
 }

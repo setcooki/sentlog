@@ -49,6 +49,7 @@ struct JniHandle {
     sentlog_handle_t* native;       // owned
     GlobalCallback*   telemetry;    // owned, may be null
     GlobalCallback*   dispatcher;   // owned, may be null
+    GlobalCallback*   hw_signer;    // owned, may be null (Phase 7c)
 };
 
 // Attach the current thread to the JVM if needed and run the supplied
@@ -157,6 +158,53 @@ int on_drain_envelope(const char* envelope_json, size_t /*len*/, void* userdata)
     return keep_or_delete;
 }
 
+// Phase 7c: hardware-signer trampoline. The Kotlin side returns a
+// ByteArray (null on failure); we copy it into the caller's buffer.
+// The C++ core's sig_out_buf is fixed at 128 bytes (covers 64 B
+// Ed25519 + 72 B max ECDSA-P256 DER).
+int on_hw_sign(const uint8_t* message_bytes,
+               size_t         message_len,
+               uint8_t*       sig_out_buf,
+               size_t*        sig_out_len_inout,
+               void*          userdata) {
+    auto* cb = static_cast<GlobalCallback*>(userdata);
+    int rc = -1;
+    with_jni_env([&](JNIEnv* env) {
+        jbyteArray msg_j = env->NewByteArray(static_cast<jsize>(message_len));
+        if (msg_j == nullptr) return;
+        if (message_len > 0) {
+            env->SetByteArrayRegion(
+                msg_j, 0, static_cast<jsize>(message_len),
+                reinterpret_cast<const jbyte*>(message_bytes));
+        }
+        auto sig_j = static_cast<jbyteArray>(
+            env->CallObjectMethod(cb->ref, cb->method, msg_j));
+        env->DeleteLocalRef(msg_j);
+
+        // The signer may throw — clear so subsequent JNI calls in
+        // the same dispatch loop survive, and treat as a failure.
+        if (env->ExceptionCheck()) {
+            LOGE("hardware signer threw; falling back");
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+            return;
+        }
+        if (sig_j == nullptr) return;  // signer returned null = fail
+
+        const jsize len = env->GetArrayLength(sig_j);
+        if (len <= 0 || static_cast<size_t>(len) > *sig_out_len_inout) {
+            env->DeleteLocalRef(sig_j);
+            return;
+        }
+        env->GetByteArrayRegion(sig_j, 0, len,
+                                reinterpret_cast<jbyte*>(sig_out_buf));
+        *sig_out_len_inout = static_cast<size_t>(len);
+        env->DeleteLocalRef(sig_j);
+        rc = 0;
+    });
+    return rc;
+}
+
 void on_envelope_dispatch(const char* forwarder_name,
                           const char* sink_kind,
                           const char* sink_json,
@@ -249,7 +297,7 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeCreate(
         return 0;
     }
 
-    auto* j = new JniHandle{native, telemetry_userdata, nullptr};
+    auto* j = new JniHandle{native, telemetry_userdata, nullptr, nullptr};
     return jlong_from_jni(j);
 }
 
@@ -266,6 +314,10 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeDestroy(
     if (j->dispatcher != nullptr) {
         env->DeleteGlobalRef(j->dispatcher->ref);
         delete j->dispatcher;
+    }
+    if (j->hw_signer != nullptr) {
+        env->DeleteGlobalRef(j->hw_signer->ref);
+        delete j->hw_signer;
     }
     delete j;
 }
@@ -513,6 +565,65 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeSetEnvelopeDispatcher(
         delete j->dispatcher;
     }
     j->dispatcher = userdata;
+    return rc;
+}
+
+JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativeSetHardwareSigner(
+    JNIEnv* env, jclass /*clazz*/, jlong handle,
+    jobject signer_obj,
+    jstring cryptosuite_j,
+    jstring verification_method_j) {
+
+    JniHandle* j = jni_from_jlong(handle);
+    if (j == nullptr) return SENTLOG_ERR_INVALID_STATE;
+
+    if (signer_obj == nullptr) {
+        // Clear at the C ABI first so the trampoline stops firing,
+        // then free the previously-tracked GlobalCallback.
+        const jint rc = static_cast<jint>(sentlog_set_hardware_signer(
+            j->native, nullptr, nullptr, nullptr, nullptr));
+        if (j->hw_signer != nullptr) {
+            env->DeleteGlobalRef(j->hw_signer->ref);
+            delete j->hw_signer;
+            j->hw_signer = nullptr;
+        }
+        return rc;
+    }
+
+    if (cryptosuite_j == nullptr || verification_method_j == nullptr) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
+
+    const jclass cb_cls = env->GetObjectClass(signer_obj);
+    const jmethodID m = env->GetMethodID(cb_cls, "onSign", "([B)[B");
+    env->DeleteLocalRef(cb_cls);
+    if (m == nullptr) return SENTLOG_ERR_INTERNAL;
+
+    const char* cs = env->GetStringUTFChars(cryptosuite_j, nullptr);
+    const char* vm = env->GetStringUTFChars(verification_method_j, nullptr);
+    if (cs == nullptr || vm == nullptr) {
+        if (cs != nullptr) env->ReleaseStringUTFChars(cryptosuite_j, cs);
+        if (vm != nullptr) env->ReleaseStringUTFChars(verification_method_j, vm);
+        return SENTLOG_ERR_INTERNAL;
+    }
+
+    auto* userdata = new GlobalCallback{env->NewGlobalRef(signer_obj), m};
+    const jint rc = static_cast<jint>(sentlog_set_hardware_signer(
+        j->native, &on_hw_sign, userdata, cs, vm));
+    env->ReleaseStringUTFChars(cryptosuite_j, cs);
+    env->ReleaseStringUTFChars(verification_method_j, vm);
+
+    if (rc != SENTLOG_OK) {
+        env->DeleteGlobalRef(userdata->ref);
+        delete userdata;
+        return rc;
+    }
+    if (j->hw_signer != nullptr) {
+        env->DeleteGlobalRef(j->hw_signer->ref);
+        delete j->hw_signer;
+    }
+    j->hw_signer = userdata;
     return rc;
 }
 
