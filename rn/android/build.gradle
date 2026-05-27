@@ -1,0 +1,40 @@
+// @sentlog/react-native — Android module.
+//
+// Picked up by React Native autolinking when an app installs the
+// @sentlog/react-native npm package. The consumer's gradle build
+// adds this as a subproject via the autolinked path.
+//
+// Consumer apps must also have the underlying me.cooki.sentlog:sentlog
+// AAR on their classpath (Maven-published once we ship; today bind
+// to the local workspace path). See README.md.
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+    namespace "me.cooki.sentlog.rn"
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 24
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+dependencies {
+    // React Native is provided by the consumer app's RN install.
+    // The autolink resolves the correct version.
+    implementation "com.facebook.react:react-android"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0"
+
+    // The Sentlog AAR (Phase 1+ native binding). Consumers wire
+    // this via Maven or a local file dep — see README.md.
+    implementation "me.cooki.sentlog:sentlog:0.0.0"
+}

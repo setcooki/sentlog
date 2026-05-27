@@ -25,6 +25,7 @@
   "devDependencies": {
     "typescript": "5.4.5"
   },
+  "react-native": "src/index.ts",
   "repository": {
     "type": "git",
     "url": "https://github.com/setcooki/sentlog",

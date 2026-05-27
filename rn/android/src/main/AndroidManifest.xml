@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  @sentlog/react-native bridge module manifest. No permissions
+  declared here — those are inherited from the underlying
+  me.cooki.sentlog:sentlog AAR (microphone, camera) at manifest
+  merge time. Integrators still need NSMicrophoneUsageDescription /
+  RECORD_AUDIO runtime permissions per docs/permissions.md.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
