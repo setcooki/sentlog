@@ -111,4 +111,31 @@ final class SentlogLifecycleTests: XCTestCase {
         try Sentlog.setEnvelopeDispatcher(nil)        // clear
         try Sentlog.setEnvelopeDispatcher(nil)        // clear-when-cleared is OK
     }
+
+    func testSetHardwareSignerRoundTrips() throws {
+        try Sentlog.initialize(config: SentlogConfig())
+        // Register, replace, clear — exercises the retain/release
+        // dance via Unmanaged.passRetained -> fromOpaque.release.
+        let signer: (Data) -> Data? = { _ in Data(repeating: 0x42, count: 64) }
+        try Sentlog.setHardwareSigner(signer,
+                                      cryptosuite: "ecdsa-jcs-2019",
+                                      verificationMethod: "did:key:zHwTest")
+        try Sentlog.setHardwareSigner(signer,
+                                      cryptosuite: "ecdsa-jcs-2019",
+                                      verificationMethod: "did:key:zReplace")
+        try Sentlog.setHardwareSigner(nil)
+        try Sentlog.setHardwareSigner(nil)  // clear-when-cleared
+    }
+
+    func testSetHardwareSignerRejectsUnknownCryptosuite() throws {
+        try Sentlog.initialize(config: SentlogConfig())
+        XCTAssertThrowsError(try Sentlog.setHardwareSigner(
+            { _ in nil },
+            cryptosuite: "rsa-pss-sha256",
+            verificationMethod: "did:key:zX"
+        )) { error in
+            let e = error as! SentlogError
+            XCTAssertEqual(e.status, SENTLOG_ERR_INVALID_CONFIG)
+        }
+    }
 }

@@ -37,6 +37,11 @@ public enum Sentlog {
     /// balance. Stored as opaque (not the box itself) so the
     /// retain/release stays symmetric.
     private static var dispatcherUserdata: UnsafeMutableRawPointer?
+
+    /// Opaque pointer to the HardwareSignerBox passed to the C ABI as
+    /// `userdata`. Same +1 retain pattern as `dispatcherUserdata`.
+    private static var hwSignerUserdata: UnsafeMutableRawPointer?
+
     private static let stateLock = NSLock()
 
     private static let encoder: JSONEncoder = {
@@ -517,6 +522,81 @@ public enum Sentlog {
         dispatcherUserdata = userdata
     }
 
+    /// Phase 7c: register (or clear, with `nil`) the hardware signer.
+    /// The closure receives the JCS-canonical envelope bytes and
+    /// returns the raw signature — ASN.1/DER for ECDSA-P256 (≤72
+    /// bytes), fixed 64 bytes for Ed25519. Return `nil` on signing
+    /// failure (Secure Enclave unavailable, user-presence denied,
+    /// etc.); the SDK then falls back to the software Ed25519 key
+    /// registered via [setSigningKey] and emits a
+    /// `HardwareSigningUnavailable` telemetry event — unless
+    /// `SentlogConfig.hardwareSigningRequired` is true, in which case
+    /// the envelope is dropped with a `ForwarderOutcome=dropped`
+    /// telemetry event.
+    ///
+    /// `cryptosuite` must be either `"ecdsa-jcs-2019"` (Secure
+    /// Enclave / KeyStore ECDSA-P256) or `"eddsa-jcs-2022"` (Android
+    /// KeyStore Ed25519, API 33+). `verificationMethod` is written
+    /// into proof.verificationMethod — typically a `did:key:` URI
+    /// the verifier resolves to the public key.
+    ///
+    /// The real Secure Enclave implementation (key creation +
+    /// ECDSA-P256 sign) is integrator-supplied today. A SDK-provided
+    /// `SecureEnclaveSigner` helper lands in Phase 7.5.
+    public static func setHardwareSigner(
+        _ signer: ((_ canonicalBytes: Data) -> Data?)?,
+        cryptosuite: String = "ecdsa-jcs-2019",
+        verificationMethod: String = ""
+    ) throws {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let h = try requireHandleLocked()
+
+        guard let signer else {
+            // Clear at the C ABI first, then release our retained box.
+            let s = sentlog_set_hardware_signer(h, nil, nil, nil, nil)
+            try NativeBridge.mustSucceed(s, "setHardwareSigner.clear")
+            if let prev = hwSignerUserdata {
+                Unmanaged<NativeBridge.HardwareSignerBox>
+                    .fromOpaque(prev).release()
+                hwSignerUserdata = nil
+            }
+            return
+        }
+
+        let box = NativeBridge.HardwareSignerBox(signer)
+        let userdata = Unmanaged.passRetained(box).toOpaque()
+        let cb: sentlog_hw_sign_cb_t = { msg, msgLen, sigOut, sigLenInout, ud in
+            guard let ud, let msg, let sigOut, let sigLenInout else { return -1 }
+            let b = Unmanaged<NativeBridge.HardwareSignerBox>
+                .fromOpaque(ud).takeUnretainedValue()
+            let data = Data(bytes: msg, count: msgLen)
+            guard let sig = b.sign(data) else { return -1 }
+            let capacity = sigLenInout.pointee
+            if sig.count == 0 || sig.count > capacity { return -2 }
+            sig.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                if let src = raw.baseAddress {
+                    sigOut.update(from: src.assumingMemoryBound(to: UInt8.self),
+                                  count: sig.count)
+                }
+            }
+            sigLenInout.pointee = sig.count
+            return 0
+        }
+        let s = sentlog_set_hardware_signer(
+            h, cb, userdata, cryptosuite, verificationMethod)
+        guard s == SENTLOG_OK else {
+            Unmanaged<NativeBridge.HardwareSignerBox>
+                .fromOpaque(userdata).release()
+            throw SentlogError(status: s, context: "setHardwareSigner")
+        }
+        if let prev = hwSignerUserdata {
+            Unmanaged<NativeBridge.HardwareSignerBox>
+                .fromOpaque(prev).release()
+        }
+        hwSignerUserdata = userdata
+    }
+
     /// Release the SDK handle. Safe to call multiple times.
     public static func destroy() {
         stateLock.lock()
@@ -533,10 +613,11 @@ public enum Sentlog {
         motion?.stop()
         motion = nil
         if let h = handle {
-            // Clear the envelope dispatcher at the C ABI before
-            // destroy so the trampoline can't fire against a
-            // freed handle. Then release our retained box.
+            // Clear the envelope dispatcher + hw signer at the C ABI
+            // before destroy so the trampolines can't fire against a
+            // freed handle. Then release our retained boxes.
             _ = sentlog_set_envelope_dispatcher(h, nil, nil)
+            _ = sentlog_set_hardware_signer(h, nil, nil, nil, nil)
             sentlog_destroy(h)
             handle = nil
         }
@@ -544,6 +625,11 @@ public enum Sentlog {
             Unmanaged<NativeBridge.DispatcherBox>
                 .fromOpaque(prev).release()
             dispatcherUserdata = nil
+        }
+        if let prev = hwSignerUserdata {
+            Unmanaged<NativeBridge.HardwareSignerBox>
+                .fromOpaque(prev).release()
+            hwSignerUserdata = nil
         }
         telemetry = nil
         currentConfig = nil

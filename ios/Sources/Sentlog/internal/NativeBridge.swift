@@ -49,6 +49,16 @@ internal enum NativeBridge {
             onEnvelope = f
         }
     }
+
+    /// A long-lived box for the Phase 7c hardware signer. The signer
+    /// closure receives the JCS-canonical envelope bytes and returns
+    /// the raw signature (≤72 bytes ECDSA-P256 DER, or 64 bytes
+    /// Ed25519); nil signals signing failure → SDK falls back to
+    /// software (or drops, when hardware_signing_required=true).
+    final class HardwareSignerBox {
+        let sign: (Data) -> Data?
+        init(_ f: @escaping (Data) -> Data?) { sign = f }
+    }
 }
 
 /// Strongly-typed error produced by the SDK. Maps to the
