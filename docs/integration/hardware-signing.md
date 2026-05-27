@@ -1,0 +1,159 @@
+# Hardware-backed signing
+
+The SDK can sign envelopes with a key that lives in the device's
+secure element — iOS Secure Enclave or Android KeyStore (StrongBox
+where available). On success, the envelope's `evidence_grade` is
+promoted to `EnclaveSigned` and the proof block uses
+`ecdsa-jcs-2019` (Secure Enclave / KeyStore ECDSA-P256) or
+`eddsa-jcs-2022` (KeyStore Ed25519 on API 33+).
+
+Hardware signing is **opt-in**. The default signing path is the
+software Ed25519 key registered via `setSigningKey`, which is fine
+for most integrations. Reach for hardware signing when:
+
+- the envelope's verifier requires enclave-backed proofs;
+- your compliance posture mandates non-exportable private keys;
+- you want a strong device-binding signal at envelope-issue time.
+
+## Architecture
+
+The shared C++ core does proof-block assembly + canonicalisation +
+fallback handling. **It does not own the key material** — your app
+generates the key in the secure element and registers a *signer
+callback* that receives the JCS-canonical envelope bytes and returns
+the raw signature.
+
+This split is deliberate: every device's keystore API surface is
+different, and the SDK shouldn't pretend to abstract them. Your
+binding code keeps full control of key lifecycle, biometric
+prompts, and any platform-specific quirks (`kSecAttrAccessible…`,
+`setUserAuthenticationRequired`, etc.).
+
+A SDK-bundled `SecureEnclaveSigner` / `KeyStoreSigner` helper that
+takes care of the boilerplate is planned for Phase 7.5 and will land
+without changing the API below.
+
+## iOS (Swift)
+
+```swift
+import CryptoKit
+import Sentlog
+import Security
+
+// 1. Create a Secure Enclave key on first run; load it on subsequent
+//    runs. The private key never leaves the SE; we only ever hold a
+//    SecKey reference.
+let access = SecAccessControlCreateWithFlags(
+    nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+    .privateKeyUsage, nil)!
+let attrs: [String: Any] = [
+    kSecAttrKeyType    as String: kSecAttrKeyTypeECSECPrimeRandom,
+    kSecAttrKeySizeInBits as String: 256,
+    kSecAttrTokenID    as String: kSecAttrTokenIDSecureEnclave,
+    kSecPrivateKeyAttrs as String: [
+        kSecAttrIsPermanent  as String: true,
+        kSecAttrApplicationTag as String: "me.cooki.sentlog.signing".data(using: .utf8)!,
+        kSecAttrAccessControl as String: access,
+    ]
+]
+var error: Unmanaged<CFError>?
+let privateKey = SecKeyCreateRandomKey(attrs as CFDictionary, &error)!
+
+// 2. Wire the SE-backed signer.
+try Sentlog.setHardwareSigner(
+    { canonicalBytes in
+        let sig = SecKeyCreateSignature(
+            privateKey,
+            .ecdsaSignatureMessageX962SHA256,
+            canonicalBytes as CFData,
+            nil)
+        return sig as Data?
+    },
+    cryptosuite: "ecdsa-jcs-2019",
+    verificationMethod: "did:key:zHwSentlogYourPubKey")  // see below
+```
+
+`verificationMethod` becomes `proof.verificationMethod` in the
+envelope. The verifier resolves it to your public key. For Secure
+Enclave keys, derive a `did:key:` URI from the exported public key
+once at key-creation time and persist it.
+
+## Android (Kotlin)
+
+```kotlin
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import java.security.KeyStore
+import java.security.Signature
+
+// 1. Create an ECDSA-P256 (or Ed25519 on API 33+) key in the
+//    AndroidKeyStore, StrongBox-backed when supported.
+val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+if (!keyStore.containsAlias("sentlog.signing")) {
+    val kpg = java.security.KeyPairGenerator.getInstance(
+        KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+    val spec = KeyGenParameterSpec.Builder(
+            "sentlog.signing",
+            KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+        .setAlgorithmParameterSpec(java.security.spec.ECGenParameterSpec("secp256r1"))
+        .setDigests(KeyProperties.DIGEST_SHA256)
+        .setIsStrongBoxBacked(true)   // softens to non-StrongBox where unsupported
+        .build()
+    kpg.initialize(spec)
+    kpg.generateKeyPair()
+}
+
+// 2. Wire the KeyStore-backed signer.
+Sentlog.setHardwareSigner(
+    signer = { canonical ->
+        val sig = Signature.getInstance("SHA256withECDSA").apply {
+            initSign(keyStore.getKey("sentlog.signing", null) as java.security.PrivateKey)
+            update(canonical)
+        }
+        sig.sign()
+    },
+    cryptosuite = "ecdsa-jcs-2019",
+    verificationMethod = "did:key:zHwSentlogYourPubKey"
+)
+```
+
+For API 33+ devices, swap `ECGenParameterSpec("secp256r1")` for
+`EdDSAParameterSpec` and `cryptosuite = "eddsa-jcs-2022"`.
+
+## Fallback behaviour
+
+If your signer returns `nil` / `null` (Secure Enclave unavailable on
+simulator, biometric prompt denied, etc.):
+
+- `SentlogConfig.hardwareSigningRequired = false` (default) — the SDK
+  falls back to the software Ed25519 key registered via
+  `setSigningKey`, or emits the envelope unsigned if no software key
+  is set. A `HardwareSigningUnavailable` telemetry event fires so you
+  can detect the silent downgrade.
+- `SentlogConfig.hardwareSigningRequired = true` — the envelope is
+  **dropped** with a `ForwarderOutcome { outcome: "dropped" }`
+  telemetry event per affected forwarder. The integrator's app must
+  decide whether to retry, prompt the user, or surface an error.
+
+## evidence_grade promotion
+
+When hardware signing succeeds, the envelope's
+`credentialSubject.evidence_grade` is rewritten to `EnclaveSigned`
+**before** canonicalisation, so the signature covers the promoted
+value. The SDK-returned `SentlogResult.evidence_grade` is unchanged
+(it reflects the device-attestation path, not the signing path);
+verifiers should rely on the envelope value.
+
+## Testing on simulator / emulator
+
+Secure Enclave is not available in the iOS simulator;
+`SecKeyCreateRandomKey` returns an error and your signer should
+propagate `nil`. Without `hardwareSigningRequired = true`, the SDK
+will emit `HardwareSigningUnavailable` and fall back silently — your
+integration tests can assert on that telemetry event to verify the
+fallback path.
+
+Android emulators support the KeyStore but not StrongBox; the
+`setIsStrongBoxBacked(true)` call may throw on emulators that don't
+emulate the hardware module. Wrap the key-creation call in a try/catch
+and retry without the StrongBox flag.
