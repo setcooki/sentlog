@@ -1,4 +1,5 @@
 import Foundation
+import SentlogCore
 
 /// SentlogConfig — passed once to ``Sentlog/initialize(config:onTelemetry:)``.
 ///
