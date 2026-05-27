@@ -5,6 +5,7 @@ import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.ProviderException
 import java.security.Signature
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
@@ -135,23 +136,33 @@ public class KeyStoreSigner private constructor(
             }
 
             // Try StrongBox first on API 28+; fall back to regular
-            // hardware backing on StrongBoxUnavailableException.
+            // hardware backing on the two known StrongBox-unavailable
+            // failure modes:
+            //   - StrongBoxUnavailableException: the documented one
+            //   - ProviderException: some Samsung devices on early
+            //     API 28 raise this instead, with cause = SBox failure.
+            // Any other exception is a genuine error (no security
+            // hardware, bad params, OOM) — surface it unchanged
+            // rather than silently degrading.
             try {
                 kpg.initialize(specBuilder(strongBox = true))
                 kpg.generateKeyPair()
-            } catch (_: StrongBoxUnavailableException) {
-                kpg.initialize(specBuilder(strongBox = false))
-                kpg.generateKeyPair()
-            } catch (t: Throwable) {
-                // Some Samsung devices on early API 28 raise
-                // ProviderException instead of StrongBoxUnavailableException
-                // when StrongBox is asked for but unavailable. Retry
-                // once without StrongBox; rethrow if that still fails.
-                runCatching {
+            } catch (e: Exception) {
+                val isStrongBoxFailure =
+                    e is StrongBoxUnavailableException ||
+                    e is ProviderException
+                if (!isStrongBoxFailure) {
+                    throw IllegalStateException(
+                        "KeyStoreSigner: could not create hardware-backed key", e)
+                }
+                try {
                     kpg.initialize(specBuilder(strongBox = false))
                     kpg.generateKeyPair()
-                }.onFailure { throw IllegalStateException(
-                    "KeyStoreSigner: could not create hardware-backed key", t) }
+                } catch (e2: Exception) {
+                    throw IllegalStateException(
+                        "KeyStoreSigner: could not create hardware-backed key " +
+                        "(StrongBox + fallback both failed)", e2)
+                }
             }
 
             return keyStore.getKey(alias, null) as java.security.PrivateKey

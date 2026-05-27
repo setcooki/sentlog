@@ -58,8 +58,17 @@ public struct SecureEnclaveSigner: Sendable {
 
         let tagData = keyTag.data(using: .utf8) ?? Data()
 
-        // Try to load an existing key first; persistence-by-tag is the
-        // common path after first launch.
+        // Serialise the load-then-create pair across threads. Without
+        // this, two concurrent first-time calls on the same keyTag
+        // both find no existing key, both call SecKeyCreateRandomKey,
+        // and the second hits errSecDuplicateItem — leaking a hard
+        // failure for a thread that should have just loaded the key
+        // the first thread just created. Concurrent SDK init at app
+        // startup makes this plausible; key creation is rare enough
+        // that the lock cost is negligible.
+        createLock.lock()
+        defer { createLock.unlock() }
+
         let privateKey: SecKey = try {
             if let existing = loadKey(tag: tagData) { return existing }
             return try createKey(tag: tagData, accessControl: accessControl)
@@ -102,6 +111,10 @@ public struct SecureEnclaveSigner: Sendable {
     }
 
     // MARK: internals
+
+    /// Guards the load-then-create pair in `create(keyTag:)` against
+    /// concurrent first-time callers racing on the same keyTag.
+    private static let createLock = NSLock()
 
     private static func loadKey(tag: Data) -> SecKey? {
         let query: [String: Any] = [
