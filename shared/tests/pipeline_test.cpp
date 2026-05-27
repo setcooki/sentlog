@@ -1380,7 +1380,7 @@ TEST(PipelineTest, FaceFramesPopulateAffectBlock) {
     EXPECT_FLOAT_EQ(j["affect"]["arousal"].get<float>(), 0.5f);
     ASSERT_TRUE(j["affect"].contains("dominant_fau"));
     EXPECT_EQ(j["affect"]["dominant_fau"].size(), 2u);
-    EXPECT_EQ(j["model_versions"]["affect"], "mediapipe-face-mesh-platform");
+    EXPECT_EQ(j["model_versions"]["affect"], "placeholder-derived");
     sentlog_destroy(h);
 }
 

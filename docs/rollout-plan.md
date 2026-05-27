@@ -170,6 +170,20 @@ sampling + reference verifier) are all shipped and CI-green. The
 two deferred items add bytes/timestamps inside the same envelope
 shape; they don't change the public ABI surface.
 
+**Doc-debt carried forward** (also surfaced by the Phase 5
+closing audit):
+
+- Spec §4.2 declares the abstract `Sink ∈ { … }` typed schemas
+  but never shows the concrete on-wire JSON shape the integrator
+  writes (`{"sink": {"kind": "http", "url": "…", "headers":
+  {…}}}`). Worth a one-paragraph addendum with one JSON example
+  per `sink_kind`.
+- The LocalQueue wire format (one envelope per `\n`-terminated
+  NDJSON line, sidecar `.lock` file, tmp+rename atomic drain) is
+  only documented inline in `c_api.cpp` / `state.cpp`. Spec §4.5
+  should call this out explicitly so external tooling can read
+  queue files without source diving.
+
 ### Phase 5 — Video affect + permissions (Weeks 9–10)
 
 - Video affect module: MediaPipe Face Mesh on Android, Vision face
@@ -185,6 +199,47 @@ shape; they don't change the public ABI surface.
 Exit: video-affect path complete behind `use_video_affect` flag;
 voice-only path remains a first-class citizen with no permission
 inflation.
+
+**Shipped in Phase 5**:
+
+- C ABI surface: `sentlog_push_face_frame(handle, ts_ns, valence,
+  arousal, dominant_fau_csv)` (`shared/include/sentlog/sentlog.h`).
+- Pipeline aggregation: mean valence / arousal, dominant FAU on
+  ≥25 % of frames, derived `affect` block emitted only when
+  `use_video_affect == true` AND frames were pushed
+  (`shared/src/internal/pipeline.cpp`).
+- `engagement.face_score` contributes to the engagement ensemble
+  via the existing `scoring_weights.engagement.face` weight
+  (default 0.5 per `docs/scoring-weights.md`).
+- Privacy enforcement: raw landmarks structurally cannot reach
+  the envelope — only the derived push values cross the C ABI
+  (spec §5.3). 6 pipeline tests cover absent-frame, present-frame,
+  clamp, gate-off-suppression, lifecycle errors.
+- Permissions: iOS `PrivacyInfo.xcprivacy` documents
+  microphone / motion / camera; Android manifest declares
+  `RECORD_AUDIO` + `CAMERA` with `required=false`; integrator
+  checklist at [`docs/permissions.md`](permissions.md).
+
+**Deferred to Phase 5.5 (post-Phase 5)**:
+
+- **5b: Android MediaPipe Face Mesh + CameraX capture**. The C
+  ABI is in place; what's left is platform-side wiring — vendor
+  the MediaPipe tasks-vision AAR, drive a 10-15 Hz camera frame
+  loop, push derived values via `sentlog_push_face_frame`. Needs
+  the affect-head MLP that maps 468 landmarks → `(valence,
+  arousal, FAU)`, which in turn needs training data and a
+  pretrained checkpoint.
+- **5c: iOS Vision face landmark capture**. Same shape: Vision
+  framework face-landmark detection at 10-15 Hz, derived push
+  through the same C ABI. Affect head same as 5b.
+- **5e: Device-integrity hooks** (Play Integrity / AppAttest /
+  DeviceCheck). Surfaces as `evidence_grade: "DeviceAttested"`
+  on the envelope when the platform attestation succeeds; same
+  inert-by-default pattern as the rest of the SDK.
+
+The deferred items don't change the C ABI surface — they wire
+real sensor data into the existing `sentlog_push_face_frame` path
+and surface attestation status as an existing enum value.
 
 ### Phase 6 — React Native + Capacitor bridges (Weeks 11–12)
 

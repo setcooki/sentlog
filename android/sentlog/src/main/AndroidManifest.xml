@@ -1,18 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Library manifest. The SDK never requests permissions; the integrator
-  is responsible for the prompt UX. We declare RECORD_AUDIO so that
-  apps consuming the AAR get a clear merge-time signal that the
-  permission is required by the SDK, and we mark the microphone
-  feature as not required so the app can decide its own market
-  filtering.
+  is responsible for the prompt UX. We declare the runtime permissions
+  the SDK needs so apps consuming the AAR get a clear merge-time
+  signal during manifest merging; uses-feature is marked
+  `required="false"` so the app stays installable on devices that
+  don't have every sensor.
+
+  Phase 1: RECORD_AUDIO (always — voice pipeline).
+  Phase 3c: motion sensors don't require a runtime permission. On
+            Android 12 / API 31+, HIGH_SAMPLING_RATE_SENSORS is only
+            needed above 200 Hz; we use SENSOR_DELAY_GAME (~50 Hz)
+            and stay below the threshold, so no permission entry.
+  Phase 5:  CAMERA (only when SentlogConfig.useVideoAffect == true).
+            Camera frames never leave the device under any projection
+            (spec §5.3); only derived (valence, arousal, FAU) values
+            reach forwarders. See docs/permissions.md.
+
+  Permission-denied at runtime surfaces as
+  sentlog_start_capture returning SENTLOG_ERR_PERMISSION_DENIED
+  via the binding's typed error.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <uses-feature
         android:name="android.hardware.microphone"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.any"
         android:required="false" />
 
 </manifest>

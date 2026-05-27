@@ -507,7 +507,15 @@ std::string Pipeline::run(const Config& config,
             ? "silero-vad-v5-platform-onnx"
             : "energy-vad-baseline";
         if (affect.has_signal) {
-            mv["affect"] = "mediapipe-face-mesh-platform";
+            // Phase 5a ships only the C ABI plumbing + pipeline
+            // aggregation; the actual MediaPipe (Android, 5b) /
+            // Vision (iOS, 5c) sensor wiring + trained affect head
+            // are deferred to Phase 5.5. Until they land, the
+            // string honestly reflects "the platform pushed
+            // derived values from an unspecified head" rather than
+            // claiming MediaPipe is running. Bindings flip this to
+            // the real model name in their 5b/5c chunks.
+            mv["affect"] = "placeholder-derived";
         }
         mv["manifest"] = "0.0.0-phase1";
         result["model_versions"] = mv;

@@ -12,9 +12,26 @@
       responsible for declaring the collection in its own privacy
       manifest.
 
-      Microphone access is required at runtime and must be declared by
-      the integrator's app via NSMicrophoneUsageDescription in
-      Info.plist. The SDK does not request the permission itself.
+      Three runtime permissions are required depending on the config:
+
+        - Microphone (always, for the voice pipeline). Declare
+          NSMicrophoneUsageDescription in the integrator's Info.plist.
+        - Motion (when SentlogConfig.useMotionSensors == true, for
+          presence.motion in Phase 3c). CoreMotion does not require
+          a usage-description string on iOS but the access is logged
+          by the OS; declare NSMotionUsageDescription if your app
+          chooses to surface it.
+        - Camera (when SentlogConfig.useVideoAffect == true, for
+          the affect block in Phase 5). Declare
+          NSCameraUsageDescription in the integrator's Info.plist.
+          Camera frames never leave the device under any projection
+          (spec §5.3) — only derived (valence, arousal, FAU) values
+          reach forwarders.
+
+      The SDK does NOT request any of these permissions itself. The
+      integrator's app drives the permission prompt; if denied,
+      sentlog_start_capture returns SENTLOG_ERR_PERMISSION_DENIED
+      via the binding's typed error.
     -->
     <key>NSPrivacyTracking</key>
     <false/>
