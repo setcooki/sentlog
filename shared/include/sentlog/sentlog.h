@@ -413,11 +413,27 @@ sentlog_status_t sentlog_set_envelope_dispatcher(
  * OTA
  * ----------------------------------------------------------------- */
 
-/* Check the configured manifest URL for an updated model bundle.
- * Verification (Ed25519 signature, SHA-256 content hash) is automatic.
- * Result via cb. Never autonomous — only fires when called. */
+/* Verify a fetched OTA manifest envelope and report the result.
+ *
+ * The HTTPS fetch lives on the platform binding (Kotlin/Swift) — the
+ * C++ core is fed the manifest bytes here and verifies the Ed25519
+ * signature against the two pinned pubkeys (active + standby), as
+ * configured via `SentlogConfig.manifest_pubkeys` or — when absent —
+ * the platform binding's compiled-in Sentlog defaults.
+ *
+ * Result is delivered through `cb`. On verification failure the
+ * callback fires with status == SENTLOG_ERR_MANIFEST_VERIFY and an
+ * update_json payload whose `error` field names the failure mode;
+ * on success status == SENTLOG_OK and update_json reports whether the
+ * manifest's version is newer than the loaded one. Bundle download +
+ * apply is a separate concern handled by the platform binding when
+ * `update_found` flips to true; the C++ core never blocks on it.
+ *
+ * Never autonomous — only fires when called. */
 sentlog_status_t sentlog_check_for_updates(
     sentlog_handle_t* handle,
+    const uint8_t*    manifest_bytes,
+    size_t            manifest_len,
     sentlog_update_cb_t cb,
     void* userdata);
 

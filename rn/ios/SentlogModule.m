@@ -46,7 +46,8 @@ RCT_EXTERN_METHOD(modelVersions
                   rejecter : (RCTPromiseRejectBlock) reject)
 
 RCT_EXTERN_METHOD(checkForUpdates
-                  : (RCTPromiseResolveBlock) resolve
+                  : (NSString *) manifestJson
+                  resolver : (RCTPromiseResolveBlock) resolve
                   rejecter : (RCTPromiseRejectBlock) reject)
 
 RCT_EXTERN_METHOD(setSigningKey

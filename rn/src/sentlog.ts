@@ -35,7 +35,7 @@ interface NativeSentlogModule {
     getPermissions(): Promise<string>;   // returns JSON
     getCapabilities(): Promise<string>;  // returns JSON
     modelVersions(): Promise<string>;    // returns JSON
-    checkForUpdates(): Promise<string>;  // returns JSON
+    checkForUpdates(manifestJson: string): Promise<string>;  // returns JSON
     /** Native ⇒ JS: register interest. The native side fires the
      *  "SentlogEnvelope" event per envelope; JS subscribes via
      *  NativeEventEmitter. Returns when the registration is in
@@ -182,8 +182,8 @@ export const Sentlog: SentlogBridge = {
         return JSON.parse(json) as ModelVersions;
     },
 
-    async checkForUpdates(): Promise<UpdateResult> {
-        const json = await requireNative().checkForUpdates();
+    async checkForUpdates(manifestJson: string): Promise<UpdateResult> {
+        const json = await requireNative().checkForUpdates(manifestJson);
         return JSON.parse(json) as UpdateResult;
     },
 

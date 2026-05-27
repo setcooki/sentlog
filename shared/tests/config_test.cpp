@@ -348,3 +348,72 @@ TEST(ConfigTest, CustomProjectionParsesValidFields) {
     EXPECT_EQ(cfg.forwarders[0].custom_fields[0], "transcript.text");
     EXPECT_EQ(cfg.forwarders[0].custom_fields[1], "liveness.score");
 }
+
+// --- Phase 7b-i: OTA manifest override (spec §1.20) ---
+
+TEST(ConfigTest, ManifestPubkeysOnly_RejectedAsMixedSource) {
+    Config cfg;
+    std::string err;
+    // 32-byte all-zero pubkey, base64 standard with '=' padding.
+    // (Decodes to 32 zero bytes.)
+    const char* j = R"({"issuer":"did:example:x",
+        "manifest_pubkeys":[
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "manifest_url");
+}
+
+TEST(ConfigTest, ManifestUrlOnly_RejectedAsMixedSource) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"issuer":"did:example:x",
+        "manifest_url":"https://example.invalid/m.json"})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "manifest_pubkeys");
+}
+
+TEST(ConfigTest, ManifestPubkeysWrongLength_Rejected) {
+    Config cfg;
+    std::string err;
+    // First pubkey is "AAAA" — decodes to 3 bytes, not 32.
+    const char* j = R"({"issuer":"did:example:x",
+        "manifest_url":"https://example.invalid/m.json",
+        "manifest_pubkeys":["AAAA",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "manifest_pubkeys[0]");
+}
+
+TEST(ConfigTest, ManifestPubkeysWrongArity_Rejected) {
+    Config cfg;
+    std::string err;
+    const char* j = R"({"issuer":"did:example:x",
+        "manifest_url":"https://example.invalid/m.json",
+        "manifest_pubkeys":["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="]})";
+    EXPECT_EQ(parse_config(j, &cfg, &err), SENTLOG_ERR_INVALID_CONFIG);
+    EXPECT_EQ(err, "manifest_pubkeys");
+}
+
+TEST(ConfigTest, ManifestPairedOverride_Accepted) {
+    Config cfg;
+    const char* j = R"({"issuer":"did:example:x",
+        "manifest_url":"https://example.invalid/m.json",
+        "manifest_pubkeys":[
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="]})";
+    EXPECT_EQ(parse_config(j, &cfg, nullptr), SENTLOG_OK);
+    ASSERT_TRUE(cfg.manifest_url.has_value());
+    EXPECT_EQ(*cfg.manifest_url, "https://example.invalid/m.json");
+    ASSERT_TRUE(cfg.manifest_pubkeys.has_value());
+    EXPECT_EQ((*cfg.manifest_pubkeys)[0][0], 0x00);
+    EXPECT_EQ((*cfg.manifest_pubkeys)[1][0], 0x01);
+}
+
+TEST(ConfigTest, ManifestNeitherSet_DefaultsAccepted) {
+    Config cfg;
+    const char* j = R"({"issuer":"did:example:x"})";
+    EXPECT_EQ(parse_config(j, &cfg, nullptr), SENTLOG_OK);
+    EXPECT_FALSE(cfg.manifest_url.has_value());
+    EXPECT_FALSE(cfg.manifest_pubkeys.has_value());
+}

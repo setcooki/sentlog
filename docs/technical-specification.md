@@ -118,7 +118,7 @@ object Sentlog {
     fun cancel()
     fun getPermissions(): Permissions
     fun getCapabilities(): Capabilities
-    suspend fun checkForUpdates(): UpdateResult
+    suspend fun checkForUpdates(manifestJson: String): UpdateResult
     fun drainQueue(path: String, drain: (String) -> Boolean): Int
     fun modelVersions(): ModelVersions
 }
@@ -135,7 +135,7 @@ public enum Sentlog {
     public static func cancel()
     public static func getPermissions() -> Permissions
     public static func getCapabilities() -> Capabilities
-    public static func checkForUpdates() async throws -> UpdateResult
+    public static func checkForUpdates(manifestJson: String) async throws -> UpdateResult
     public static func drainQueue(path: String, drain: (Envelope) -> Bool) -> Int
     public static func modelVersions() -> ModelVersions
 }
@@ -144,6 +144,13 @@ public enum Sentlog {
 `initialize` is idempotent: calling it again destroys the previous
 handle. `destroy` is exposed explicitly for graceful teardown and test
 isolation; called automatically by the next `initialize`.
+
+`checkForUpdates` takes the bytes of a fetched signed-manifest
+envelope (wire format in §5.1). HTTPS fetch of the manifest is the
+integrator's responsibility today — a no-argument overload that
+performs the fetch internally is planned. Verification is automatic;
+the returned `UpdateResult.error` field names the failure mode when
+verification fails.
 
 `getPermissions()` returns the current permission state without
 throwing. The SDK never requests permissions on the integrator's

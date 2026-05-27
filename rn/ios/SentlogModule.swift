@@ -125,11 +125,12 @@ public class SentlogModule: RCTEventEmitter {
         } catch { reject("modelVersions", error.localizedDescription, error) }
     }
 
-    @objc public func checkForUpdates(_ resolve: @escaping RCTPromiseResolveBlock,
+    @objc public func checkForUpdates(_ manifestJson: String,
+                                      resolver resolve: @escaping RCTPromiseResolveBlock,
                                       rejecter reject: @escaping RCTPromiseRejectBlock) {
         Task {
             do {
-                let u = try await Sentlog.checkForUpdates()
+                let u = try await Sentlog.checkForUpdates(manifestJson: manifestJson)
                 resolve(String(decoding: try jsonEncoder.encode(u), as: UTF8.self))
             } catch {
                 reject("checkForUpdates", error.localizedDescription, error)

@@ -286,33 +286,66 @@ public object Sentlog {
         return json.decodeFromString(ModelVersions.serializer(), js)
     }
 
-    /** Check for an OTA model update. Integrator-triggered; never autonomous. */
-    public suspend fun checkForUpdates(): UpdateResult = withContext(Dispatchers.IO) {
-        val h = requireHandle()
-        val deferred = CompletableDeferred<UpdateResult>()
-        val cb = object : UpdateCallback() {
-            override fun onUpdate(status: Int, updateJson: String?) {
-                if (status != NativeBridge.STATUS_OK || updateJson == null) {
-                    deferred.completeExceptionally(
-                        IllegalStateException("checkForUpdates failed (status=$status)")
-                    )
-                    return
-                }
-                try {
-                    deferred.complete(
-                        json.decodeFromString(UpdateResult.serializer(), updateJson)
-                    )
-                } catch (e: Exception) {
-                    deferred.completeExceptionally(e)
+    /**
+     * Check for an OTA model update. Integrator-triggered; never
+     * autonomous.
+     *
+     * `manifestJson` is the bytes of a fetched signed-manifest envelope
+     * (wire format documented in spec §5.1). The C++ core verifies the
+     * Ed25519 signature against the two pinned pubkeys configured via
+     * [SentlogConfig.manifestPubkeys] — or, when absent, the
+     * built-in Sentlog defaults.
+     *
+     * The HTTPS fetch of the manifest is the integrator's
+     * responsibility today (7b-i ships verification only). A
+     * no-argument overload that performs the fetch itself lands in
+     * 7b-ii.
+     *
+     * On verification failure the returned [UpdateResult] has
+     * `updateFound = false`, `applied = false`, and `error` set to
+     * the failure-mode string (see [UpdateResult.error] for the
+     * enumeration), and this method throws [IllegalStateException]
+     * carrying the same payload — integrators that want the typed
+     * payload can read it from the exception's message.
+     */
+    public suspend fun checkForUpdates(manifestJson: String): UpdateResult =
+        withContext(Dispatchers.IO) {
+            val h = requireHandle()
+            val deferred = CompletableDeferred<UpdateResult>()
+            val cb = object : UpdateCallback() {
+                override fun onUpdate(status: Int, updateJson: String?) {
+                    if (updateJson == null) {
+                        deferred.completeExceptionally(
+                            IllegalStateException(
+                                "checkForUpdates failed (status=$status)"))
+                        return
+                    }
+                    try {
+                        val parsed = json.decodeFromString(
+                            UpdateResult.serializer(), updateJson)
+                        if (status != NativeBridge.STATUS_OK) {
+                            deferred.completeExceptionally(
+                                IllegalStateException(
+                                    "checkForUpdates verify failed: " +
+                                    (parsed.error ?: "unknown")))
+                            return
+                        }
+                        deferred.complete(parsed)
+                    } catch (e: Exception) {
+                        deferred.completeExceptionally(e)
+                    }
                 }
             }
+            val manifestBytes = manifestJson.toByteArray(Charsets.UTF_8)
+            val initialStatus = NativeBridge.nativeCheckForUpdates(
+                h, manifestBytes, cb)
+            if (initialStatus != NativeBridge.STATUS_OK &&
+                initialStatus != NativeBridge.STATUS_ERR_MANIFEST_VERIFY) {
+                throw IllegalStateException(
+                    "checkForUpdates kickoff failed (status=$initialStatus)")
+            }
+            deferred.await()
         }
-        val initialStatus = NativeBridge.nativeCheckForUpdates(h, cb)
-        if (initialStatus != NativeBridge.STATUS_OK) {
-            throw IllegalStateException("checkForUpdates kickoff failed (status=$initialStatus)")
-        }
-        deferred.await()
-    }
 
     /**
      * Phase 4d: register the Ed25519 signing key the SDK uses to

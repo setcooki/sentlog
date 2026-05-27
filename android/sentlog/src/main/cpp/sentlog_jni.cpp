@@ -22,6 +22,7 @@
 
 #include <cstring>
 #include <memory>
+#include <vector>
 
 #define SENTLOG_LOG_TAG "sentlog-jni"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, SENTLOG_LOG_TAG, __VA_ARGS__)
@@ -517,9 +518,12 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeSetEnvelopeDispatcher(
 
 JNIEXPORT jint JNICALL
 Java_me_cooki_sentlog_internal_NativeBridge_nativeCheckForUpdates(
-    JNIEnv* env, jclass /*clazz*/, jlong handle, jobject update_cb_obj) {
+    JNIEnv* env, jclass /*clazz*/, jlong handle,
+    jbyteArray manifest_bytes_j, jobject update_cb_obj) {
 
-    if (update_cb_obj == nullptr) return SENTLOG_ERR_INVALID_CONFIG;
+    if (update_cb_obj == nullptr || manifest_bytes_j == nullptr) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
 
     const jclass cb_cls = env->GetObjectClass(update_cb_obj);
     const jmethodID m = env->GetMethodID(cb_cls, "onUpdate",
@@ -527,13 +531,24 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeCheckForUpdates(
     env->DeleteLocalRef(cb_cls);
     if (m == nullptr) return SENTLOG_ERR_INTERNAL;
 
+    // Copy bytes into a stable buffer for the C ABI. The JNI byte
+    // array's lifetime is the JNI call; cb fires synchronously per
+    // the C ABI so a local copy is enough.
+    const jsize len = env->GetArrayLength(manifest_bytes_j);
+    std::vector<uint8_t> bytes(static_cast<size_t>(len));
+    if (len > 0) {
+        env->GetByteArrayRegion(manifest_bytes_j, 0, len,
+                                reinterpret_cast<jbyte*>(bytes.data()));
+    }
+
     auto* userdata = new GlobalCallback{env->NewGlobalRef(update_cb_obj), m};
     const sentlog_status_t s = sentlog_check_for_updates(
-        native_from_jlong(handle), &on_update, userdata);
-    if (s != SENTLOG_OK) {
-        env->DeleteGlobalRef(userdata->ref);
-        delete userdata;
-    }
+        native_from_jlong(handle),
+        bytes.data(), bytes.size(),
+        &on_update, userdata);
+    // The cb has fired by now (sync per C ABI). Free the GlobalRef.
+    env->DeleteGlobalRef(userdata->ref);
+    delete userdata;
     return static_cast<jint>(s);
 }
 

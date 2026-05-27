@@ -143,10 +143,10 @@ class SentlogModule(private val reactContext: ReactApplicationContext)
     }
 
     @ReactMethod
-    fun checkForUpdates(promise: Promise) {
+    fun checkForUpdates(manifestJson: String, promise: Promise) {
         scope.launch {
             try {
-                val r = Sentlog.checkForUpdates()
+                val r = Sentlog.checkForUpdates(manifestJson)
                 promise.resolve(json.encodeToString(
                     me.cooki.sentlog.UpdateResult.serializer(), r))
             } catch (t: Throwable) {

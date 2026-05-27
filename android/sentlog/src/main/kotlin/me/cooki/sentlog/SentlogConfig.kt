@@ -51,6 +51,14 @@ public data class SentlogConfig(
 
     // --- output pipeline ---
     @SerialName("forwarders")            val forwarders: List<Forwarder> = emptyList(),
+
+    // --- OTA model updates (spec §1.20) ---
+    // Defaults to the published Sentlog manifest. Overriding requires
+    // overriding BOTH together; the C++ core rejects mixed-source
+    // configuration at init. `manifestPubkeys` is `[active, standby]`,
+    // each entry the base64-encoded raw 32-byte Ed25519 pubkey.
+    @SerialName("manifest_url")     val manifestUrl:     String?       = null,
+    @SerialName("manifest_pubkeys") val manifestPubkeys: List<String>? = null,
 )
 
 @Serializable

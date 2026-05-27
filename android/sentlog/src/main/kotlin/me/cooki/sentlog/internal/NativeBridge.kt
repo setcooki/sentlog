@@ -71,7 +71,9 @@ internal object NativeBridge {
     @JvmStatic external fun nativeGetPermissions(handle: Long): String?
     @JvmStatic external fun nativeGetCapabilities(handle: Long): String?
     @JvmStatic external fun nativeModelVersions(handle: Long): String?
-    @JvmStatic external fun nativeCheckForUpdates(handle: Long, updateCb: UpdateCallback): Int
+    @JvmStatic external fun nativeCheckForUpdates(
+        handle: Long, manifestBytes: ByteArray, updateCb: UpdateCallback,
+    ): Int
 
     /** Phase 4i: drain a local-queue NDJSON file at [path]. Returns
      *  the number of envelopes delivered to [cb]. The cb returns

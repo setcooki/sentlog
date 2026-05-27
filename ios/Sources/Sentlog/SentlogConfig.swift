@@ -54,6 +54,15 @@ public struct SentlogConfig: Codable, Sendable, Equatable {
 
     public var forwarders: [Forwarder] = []
 
+    // MARK: OTA model updates (spec §1.20)
+    //
+    // Defaults to the published Sentlog manifest. Overriding requires
+    // overriding BOTH together; the C++ core rejects mixed-source
+    // configuration at init. `manifestPubkeys` is `[active, standby]`,
+    // each entry the base64-encoded raw 32-byte Ed25519 pubkey.
+    public var manifestUrl:     String?
+    public var manifestPubkeys: [String]?
+
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
@@ -79,6 +88,8 @@ public struct SentlogConfig: Codable, Sendable, Equatable {
         case sessionId               = "session_id"
         case companionEvidenceRefs   = "companion_evidence_refs"
         case forwarders
+        case manifestUrl             = "manifest_url"
+        case manifestPubkeys         = "manifest_pubkeys"
     }
 }
 

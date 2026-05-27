@@ -13,7 +13,10 @@
 #include <sys/file.h>
 #include <unistd.h>
 
+#include <chrono>
+
 #include "internal/envelope.h"
+#include "internal/ota.h"
 #include "internal/pipeline.h"
 #include "internal/signing.h"
 
@@ -352,6 +355,92 @@ void State::emit_telemetry(const std::string& event_json) noexcept {
     if (telemetry_cb_ == nullptr) return;
     std::lock_guard<std::mutex> lock(telemetry_mutex_);
     telemetry_cb_(event_json.c_str(), telemetry_userdata_);
+}
+
+// --- Phase 7: OTA manifest verification --------------------------
+
+namespace {
+
+// Placeholder Sentlog-published manifest pubkeys baked into the build.
+// These zero arrays guarantee verification fails closed against any
+// real-world manifest — Sentlog has not yet published its manifest
+// signing infrastructure. Integrators that want to ship OTA today
+// override `manifest_url` + `manifest_pubkeys` in SentlogConfig.
+//
+// When Sentlog publishes the v1.0 manifest infra, the real pubkeys
+// (32 bytes each) replace these arrays here AND in the platform
+// bindings' default-URL constants. The change is a coordinated
+// commit, not an OTA itself.
+constexpr Ed25519PublicKey kDefaultActivePubkey  = {};
+constexpr Ed25519PublicKey kDefaultStandbyPubkey = {};
+
+int64_t now_unix_ms() noexcept {
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+}
+
+const char* verify_error_string(ManifestVerifyStatus s) noexcept {
+    switch (s) {
+        case ManifestVerifyStatus::OK:                       return "ok";
+        case ManifestVerifyStatus::InvalidJson:              return "invalid_json";
+        case ManifestVerifyStatus::MissingFields:            return "missing_fields";
+        case ManifestVerifyStatus::UnknownKeyId:             return "unknown_key_id";
+        case ManifestVerifyStatus::BadSignature:             return "bad_signature";
+        case ManifestVerifyStatus::UnsupportedSchemaVersion: return "unsupported_schema_version";
+    }
+    return "unknown";
+}
+
+}  // namespace
+
+sentlog_status_t State::check_for_updates(const uint8_t* manifest_bytes,
+                                          size_t manifest_len,
+                                          std::string* update_json_out) {
+    if (update_json_out == nullptr) return SENTLOG_ERR_INVALID_CONFIG;
+    if (manifest_bytes == nullptr || manifest_len == 0) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
+
+    // Current loaded version mirrors what model_versions_json reports.
+    // When real model loading lands, replace this with the loaded
+    // manifest version stored on State; today it is the placeholder.
+    const std::string previous_version = "0.0.0-phase1";
+
+    const Ed25519PublicKey& active = config_.manifest_pubkeys.has_value()
+        ? (*config_.manifest_pubkeys)[0] : kDefaultActivePubkey;
+    const Ed25519PublicKey& standby = config_.manifest_pubkeys.has_value()
+        ? (*config_.manifest_pubkeys)[1] : kDefaultStandbyPubkey;
+
+    Manifest manifest;
+    const auto vs = parse_and_verify_manifest(
+        std::string_view(reinterpret_cast<const char*>(manifest_bytes),
+                         manifest_len),
+        active, standby, manifest);
+
+    json out;
+    out["checked_at_ms"]    = now_unix_ms();
+    out["previous_version"] = previous_version;
+
+    if (vs != ManifestVerifyStatus::OK) {
+        out["update_found"] = false;
+        out["applied"]      = false;
+        out["error"]        = verify_error_string(vs);
+        *update_json_out    = out.dump();
+        return SENTLOG_ERR_MANIFEST_VERIFY;
+    }
+
+    const bool is_newer = manifest.manifest_version != previous_version;
+    out["update_found"] = is_newer;
+    // `applied` stays false at this layer — the C++ core verifies the
+    // manifest but does not own the bundle download or model swap.
+    // The platform binding flips this when it has fetched and applied
+    // the bundle (Phase 7.x bundle-apply work, not in 7b-i).
+    out["applied"] = false;
+    if (is_newer) {
+        out["new_version"] = manifest.manifest_version;
+    }
+    *update_json_out = out.dump();
+    return SENTLOG_OK;
 }
 
 // --- Phase 4d: signing + dispatch --------------------------------

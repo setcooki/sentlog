@@ -130,6 +130,14 @@ export interface SentlogConfig {
     companion_evidence_refs?:    string[];
 
     forwarders?:           Forwarder[];
+
+    /** OTA manifest override — spec §1.20. Defaults to the published
+     *  Sentlog manifest URL + pinned pubkeys. Overriding requires
+     *  overriding BOTH together — mixed-source configuration is
+     *  rejected at init. `manifest_pubkeys` is `[active, standby]`,
+     *  each entry the base64-encoded raw 32-byte Ed25519 pubkey. */
+    manifest_url?:         string | null;
+    manifest_pubkeys?:     [string, string];
 }
 
 // ----- result (mirrors SentlogResult in spec §3) -----------------
@@ -336,7 +344,11 @@ export interface SentlogBridge {
     modelVersions(): Promise<ModelVersions>;
 
     /** Check for an OTA model update (Phase 7 stub returns no-update today). */
-    checkForUpdates(): Promise<UpdateResult>;
+    /** Verify a fetched signed manifest envelope (spec §5.1) against
+     *  the configured pubkeys. The HTTPS fetch is the integrator's
+     *  responsibility today; a no-argument overload that performs the
+     *  fetch internally lands in 7b-ii. */
+    checkForUpdates(manifestJson: string): Promise<UpdateResult>;
 
     /** Drain a local-queue NDJSON file. */
     drainQueue(path: string, drain: DrainHandler): Promise<number>;

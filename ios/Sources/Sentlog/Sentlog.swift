@@ -318,8 +318,20 @@ public enum Sentlog {
         try decode(ModelVersions.self, from: sentlog_model_versions, label: "modelVersions")
     }
 
-    /// Check for OTA model updates. Integrator-triggered; never autonomous.
-    public static func checkForUpdates() async throws -> UpdateResult {
+    /// Check for an OTA model update. Integrator-triggered; never
+    /// autonomous.
+    ///
+    /// `manifestJson` is the bytes of a fetched signed-manifest
+    /// envelope (wire format documented in spec §5.1). The C++ core
+    /// verifies the Ed25519 signature against the two pinned pubkeys
+    /// configured via `SentlogConfig.manifestPubkeys` — or, when
+    /// absent, the built-in Sentlog defaults.
+    ///
+    /// The HTTPS fetch of the manifest is the integrator's
+    /// responsibility today (7b-i ships verification only). A
+    /// no-argument overload that performs the fetch itself lands in
+    /// 7b-ii.
+    public static func checkForUpdates(manifestJson: String) async throws -> UpdateResult {
         let h = try { () throws -> OpaquePointer in
             stateLock.lock()
             defer { stateLock.unlock() }
@@ -333,16 +345,29 @@ public enum Sentlog {
                 guard let userdata else { return }
                 let box = Unmanaged<NativeBridge.UpdateBox>
                     .fromOpaque(userdata).takeRetainedValue()
-                guard status == SENTLOG_OK, let updateCStr else {
+                guard let updateCStr else {
                     box.continuation?.resume(throwing:
                         SentlogError(status: status, context: "checkForUpdates"))
                     return
                 }
+                // status != OK is delivered alongside an UpdateResult
+                // JSON whose `error` field names the failure mode; the
+                // Swift caller gets the typed error via SentlogError
+                // and can inspect the JSON via the SentlogError context.
+                if status != SENTLOG_OK {
+                    box.continuation?.resume(throwing:
+                        SentlogError(status: status,
+                                     context: "checkForUpdates: " +
+                                              String(cString: updateCStr)))
+                    return
+                }
                 box.continuation?.resume(returning: String(cString: updateCStr))
             }
-            // The Phase 1/2 stub fires cb synchronously per the C ABI;
-            // no "kickoff failed without cb" branch needed.
-            _ = sentlog_check_for_updates(h, cb, userdata)
+            let bytes = Array(manifestJson.utf8)
+            _ = bytes.withUnsafeBufferPointer { ptr in
+                sentlog_check_for_updates(h, ptr.baseAddress, ptr.count,
+                                          cb, userdata)
+            }
         }
         guard let data = updateJson.data(using: .utf8) else {
             throw SentlogError(status: SENTLOG_ERR_INTERNAL,

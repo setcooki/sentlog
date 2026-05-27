@@ -9,11 +9,13 @@
 #ifndef SENTLOG_INTERNAL_CONFIG_H
 #define SENTLOG_INTERNAL_CONFIG_H
 
+#include <array>
 #include <map>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "internal/signing.h"
 #include "sentlog/sentlog.h"
 
 namespace sentlog::internal {
@@ -78,6 +80,24 @@ struct Config {
 
     // forwarders
     std::vector<Forwarder> forwarders;
+
+    // OTA model updates — spec decision row 1.20.
+    //
+    // Both default to absent: when both are unset, the platform
+    // binding falls back to the published Sentlog manifest URL and
+    // the Sentlog-pinned pubkeys baked into the binding.
+    //
+    // Overriding requires overriding BOTH together — mixed-source
+    // configuration (custom URL with default keys, or custom keys
+    // pointing at the Sentlog-published manifest) is rejected at
+    // init. Validation enforces this in parse_config().
+    //
+    // `manifest_pubkeys` carries exactly two raw Ed25519 pubkeys
+    // (32 bytes each): index 0 = "active", index 1 = "standby".
+    // The JSON wire format uses base64(no-pad) strings; the parser
+    // decodes them here.
+    std::optional<std::string>                       manifest_url;
+    std::optional<std::array<Ed25519PublicKey, 2>>   manifest_pubkeys;
 };
 
 // Parse and validate a JSON config string. On success returns OK and

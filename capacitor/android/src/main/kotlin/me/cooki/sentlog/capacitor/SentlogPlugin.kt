@@ -141,9 +141,11 @@ class SentlogPlugin : Plugin() {
 
     @PluginMethod
     fun checkForUpdates(call: PluginCall) {
+        val manifestJson = call.getString("manifestJson")
+            ?: return call.reject("manifestJson required")
         scope.launch {
             try {
-                val u = Sentlog.checkForUpdates()
+                val u = Sentlog.checkForUpdates(manifestJson)
                 call.resolve(JSObject().put("json",
                     json.encodeToString(me.cooki.sentlog.UpdateResult.serializer(), u)))
             } catch (t: Throwable) {

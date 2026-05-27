@@ -113,6 +113,39 @@ bool read_optional_string(const json& j, const std::string& key,
     return true;
 }
 
+// Standard base64 + base64url decode (tolerates either alphabet and
+// optional '=' padding). Returns empty vector on any non-alphabet
+// character or invalid length. Used for manifest_pubkeys, where the
+// JSON wire encoding is integrator-supplied so we accept the common
+// flavors rather than pinning to one.
+std::vector<uint8_t> base64_decode_lenient(const std::string& s) {
+    auto val = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+' || c == '-') return 62;
+        if (c == '/' || c == '_') return 63;
+        return -1;
+    };
+    std::string_view view(s);
+    while (!view.empty() && view.back() == '=') view.remove_suffix(1);
+    std::vector<uint8_t> out;
+    out.reserve(view.size() * 3 / 4);
+    uint32_t buf = 0;
+    int bits = 0;
+    for (char c : view) {
+        const int v = val(c);
+        if (v < 0) return {};
+        buf = (buf << 6) | static_cast<uint32_t>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<uint8_t>((buf >> bits) & 0xFF));
+        }
+    }
+    return out;
+}
+
 bool parse_forwarder(const json& j, Forwarder& out,
                      std::string* error_field, const std::string& path) {
     if (!j.is_object()) return fail(error_field, path);
@@ -259,6 +292,39 @@ sentlog_status_t parse_config(const std::string& json_text,
 
     ok &= read_optional_string(j, "session_id", cfg.session_id, error_field, root);
 
+    // OTA manifest override — spec §1.20. Both must be set together
+    // or both absent. Mixed-source rejected in cross-field validation
+    // below so the error_field points at the missing half.
+    ok &= read_optional_string(j, "manifest_url", cfg.manifest_url,
+                               error_field, root);
+    if (j.contains("manifest_pubkeys") && !j["manifest_pubkeys"].is_null()) {
+        const auto& pks = j["manifest_pubkeys"];
+        if (!pks.is_array() || pks.size() != 2) {
+            return fail(error_field, "manifest_pubkeys")
+                   ? SENTLOG_ERR_INVALID_CONFIG : SENTLOG_ERR_INVALID_CONFIG;
+        }
+        std::array<Ed25519PublicKey, 2> decoded{};
+        for (size_t i = 0; i < 2; ++i) {
+            if (!pks[i].is_string()) {
+                if (error_field != nullptr) {
+                    *error_field = "manifest_pubkeys[" +
+                                   std::to_string(i) + "]";
+                }
+                return SENTLOG_ERR_INVALID_CONFIG;
+            }
+            const auto bytes = base64_decode_lenient(pks[i].get<std::string>());
+            if (bytes.size() != kEd25519PublicKeyBytes) {
+                if (error_field != nullptr) {
+                    *error_field = "manifest_pubkeys[" +
+                                   std::to_string(i) + "]";
+                }
+                return SENTLOG_ERR_INVALID_CONFIG;
+            }
+            std::copy(bytes.begin(), bytes.end(), decoded[i].begin());
+        }
+        cfg.manifest_pubkeys = decoded;
+    }
+
     if (j.contains("companion_evidence_refs")) {
         if (!j["companion_evidence_refs"].is_array()) {
             return fail(error_field, "companion_evidence_refs") ? SENTLOG_ERR_INVALID_CONFIG : SENTLOG_ERR_INVALID_CONFIG;
@@ -346,6 +412,18 @@ sentlog_status_t parse_config(const std::string& json_text,
         if (error_field != nullptr) *error_field = "use_hardware_signing";
         return SENTLOG_ERR_INVALID_CONFIG;
     }
+    // Paired override per spec §1.20: custom manifest URL and custom
+    // pubkeys must be supplied together so an integrator can't point
+    // at their own manifest while still trusting the Sentlog pubkeys
+    // (or vice versa). The error_field points at whichever half is
+    // missing.
+    if (cfg.manifest_url.has_value() != cfg.manifest_pubkeys.has_value()) {
+        if (error_field != nullptr) {
+            *error_field = cfg.manifest_url.has_value()
+                ? "manifest_pubkeys" : "manifest_url";
+        }
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
 
     *out = std::move(cfg);
     return SENTLOG_OK;
@@ -373,6 +451,9 @@ std::string config_to_json(const Config& cfg) {
     j["tsa_timeout_ms"] = cfg.tsa_timeout_ms;
     j["tsa_required"]   = cfg.tsa_required;
     if (cfg.session_id) j["session_id"] = *cfg.session_id;
+    if (cfg.manifest_url) j["manifest_url"] = *cfg.manifest_url;
+    // manifest_pubkeys deliberately omitted: pubkey bytes carry no
+    // diagnostic value and the round-trip would double-encode them.
     j["companion_evidence_refs"] = cfg.companion_evidence_refs;
     j["forwarders"] = json::array();
     for (const auto& fw : cfg.forwarders) {

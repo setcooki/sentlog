@@ -203,6 +203,18 @@ public:
     /// after the result JSON is assembled.
     void dispatch_envelopes(const std::string& result_json);
 
+    // --- Phase 7: OTA manifest verification -----------------------
+
+    /// Verify a fetched manifest envelope against the configured
+    /// pubkeys (config override or built-in placeholders) and emit
+    /// a JSON UpdateResult into *update_json_out. The returned
+    /// status is OK iff verification succeeded; an error status is
+    /// paired with an UpdateResult whose `error` field names the
+    /// failure mode. Never blocks; never fetches.
+    sentlog_status_t check_for_updates(const uint8_t* manifest_bytes,
+                                       size_t manifest_len,
+                                       std::string* update_json_out);
+
     /// Non-destructive copy of the audio ring buffer contents into
     /// `out`. Returns the number of samples written. Safe to call
     /// concurrently with push_audio.

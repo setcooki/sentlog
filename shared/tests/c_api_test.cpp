@@ -193,29 +193,64 @@ TEST(CApiTest, EvaluateCallbackFiresWithRealResult) {
     sentlog_destroy(h);
 }
 
-TEST(CApiTest, CheckForUpdatesReturnsSchemaCorrectStub) {
+// The full manifest-verify pipeline is exercised in ota_test.cpp
+// against the raw primitive; here we cover the C ABI plumbing:
+// null/empty-bytes rejection, error-path delivery (fails closed
+// against the placeholder pubkeys built into the default build), and
+// the JSON shape.
+TEST(CApiTest, CheckForUpdatesRejectsEmptyBytes) {
+    sentlog_status_t status = SENTLOG_OK;
+    sentlog_handle_t* h =
+        sentlog_create(kValidConfig, nullptr, nullptr, &status);
+    ASSERT_NE(h, nullptr);
+    auto cb = [](sentlog_status_t, const char*, void*) {};
+    EXPECT_EQ(sentlog_check_for_updates(h, nullptr, 0, cb, nullptr),
+              SENTLOG_ERR_INVALID_CONFIG);
+    sentlog_destroy(h);
+}
+
+TEST(CApiTest, CheckForUpdatesFailsClosedAgainstPlaceholderKeys) {
+    // The default-built SDK has placeholder (all-zero) Sentlog
+    // pubkeys until v1.0 publishes the real ones. Any well-formed
+    // manifest must therefore fail with bad_signature — never
+    // silently succeed.
     sentlog_status_t status = SENTLOG_OK;
     sentlog_handle_t* h =
         sentlog_create(kValidConfig, nullptr, nullptr, &status);
     ASSERT_NE(h, nullptr);
 
+    const std::string envelope =
+        R"({"manifest":{"schema_version":"1","manifest_version":"0.0.5",)"
+        R"("bundle_url":"https://e.invalid/x","bundle_sha256":")"
+        R"(e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",)"
+        R"("bundle_size":1,"issued_at_ms":1},)"
+        R"("key_id":"active","signature_b64url":")"
+        R"(AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})";
+
     struct UpdCapture {
         bool called{false};
+        sentlog_status_t status{SENTLOG_OK};
         std::string update_json;
     } cap;
-
     auto cb = [](sentlog_status_t s, const char* j, void* ud) {
         auto* c = static_cast<UpdCapture*>(ud);
         c->called = true;
+        c->status = s;
         if (j) c->update_json = j;
-        EXPECT_EQ(s, SENTLOG_OK);
     };
 
-    EXPECT_EQ(sentlog_check_for_updates(h, cb, &cap), SENTLOG_OK);
+    EXPECT_EQ(sentlog_check_for_updates(
+                  h,
+                  reinterpret_cast<const uint8_t*>(envelope.data()),
+                  envelope.size(),
+                  cb, &cap),
+              SENTLOG_ERR_MANIFEST_VERIFY);
     EXPECT_TRUE(cap.called);
+    EXPECT_EQ(cap.status, SENTLOG_ERR_MANIFEST_VERIFY);
     const auto j = json::parse(cap.update_json);
-    EXPECT_TRUE(j.contains("update_found"));
     EXPECT_FALSE(j["update_found"].get<bool>());
+    EXPECT_FALSE(j["applied"].get<bool>());
+    EXPECT_EQ(j["error"].get<std::string>(), "bad_signature");
     sentlog_destroy(h);
 }
 

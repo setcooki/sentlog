@@ -41,7 +41,7 @@ interface NativeSentlogPlugin {
     getPermissions(): Promise<{ json: string }>;
     getCapabilities(): Promise<{ json: string }>;
     modelVersions(): Promise<{ json: string }>;
-    checkForUpdates(): Promise<{ json: string }>;
+    checkForUpdates(args: { manifestJson: string }): Promise<{ json: string }>;
     setSigningKey(args: { secretKeyBase64: string;
                           verificationMethod: string }): Promise<void>;
     setEnvelopeDispatcherActive(args: { active: boolean }): Promise<void>;
@@ -170,8 +170,8 @@ export const Sentlog: SentlogBridge = {
         return JSON.parse(json) as ModelVersions;
     },
 
-    async checkForUpdates(): Promise<UpdateResult> {
-        const { json } = await Native.checkForUpdates();
+    async checkForUpdates(manifestJson: string): Promise<UpdateResult> {
+        const { json } = await Native.checkForUpdates({ manifestJson });
         return JSON.parse(json) as UpdateResult;
     },
 

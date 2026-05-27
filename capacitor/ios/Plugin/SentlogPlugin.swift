@@ -100,9 +100,12 @@ public class SentlogPlugin: CAPPlugin {
     }
 
     @objc public func checkForUpdates(_ call: CAPPluginCall) {
+        guard let manifestJson = call.getString("manifestJson") else {
+            call.reject("manifestJson required"); return
+        }
         Task {
             do {
-                let u = try await Sentlog.checkForUpdates()
+                let u = try await Sentlog.checkForUpdates(manifestJson: manifestJson)
                 call.resolve(["json": String(decoding: try jsonEncoder.encode(u), as: UTF8.self)])
             } catch {
                 call.reject(error.localizedDescription, nil, error)

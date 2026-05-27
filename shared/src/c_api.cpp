@@ -247,16 +247,21 @@ sentlog_status_t sentlog_set_envelope_dispatcher(
 }
 
 sentlog_status_t sentlog_check_for_updates(sentlog_handle_t* handle,
+                                           const uint8_t*    manifest_bytes,
+                                           size_t            manifest_len,
                                            sentlog_update_cb_t cb,
                                            void* userdata) {
     if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
     if (cb == nullptr)     return SENTLOG_ERR_INVALID_CONFIG;
-    // Phase 7. Stub returns the schema-correct "no update found".
-    const std::string update_json =
-        R"({"checked_at_ms":0,"update_found":false,)"
-        R"("previous_version":"0.0.0-phase1","applied":false})";
-    cb(SENTLOG_OK, update_json.c_str(), userdata);
-    return SENTLOG_OK;
+    try {
+        std::string update_json;
+        const sentlog_status_t s = handle->state->check_for_updates(
+            manifest_bytes, manifest_len, &update_json);
+        cb(s, update_json.c_str(), userdata);
+        return s;
+    } catch (...) {
+        return SENTLOG_ERR_INVALID_STATE;
+    }
 }
 
 int sentlog_drain_queue(sentlog_handle_t* handle,
