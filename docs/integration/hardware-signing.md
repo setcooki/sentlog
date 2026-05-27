@@ -35,48 +35,64 @@ without changing the API below.
 
 ## iOS (Swift)
 
-```swift
-import CryptoKit
-import Sentlog
-import Security
+The SDK ships a `SecureEnclaveSigner` helper that does key creation,
+keychain persistence, and `did:key:` URI derivation for you:
 
-// 1. Create a Secure Enclave key on first run; load it on subsequent
-//    runs. The private key never leaves the SE; we only ever hold a
-//    SecKey reference.
+```swift
+import Sentlog
+
+let signer = try SecureEnclaveSigner.create(
+    keyTag: "me.example.myapp.sentlog")
+try Sentlog.setHardwareSigner(signer)
+```
+
+That's it. The first call generates the ECDSA-P256 key inside the
+Secure Enclave under the given keychain tag; subsequent calls load
+the existing key. The signer's `verificationMethod` is a `did:key:`
+URI derived from the public key — the verifier resolves it without an
+external key directory. The public key bytes are also available via
+`signer.publicKeyRaw` (65 bytes, uncompressed P-256) if you need to
+hand them to a separate enrollment flow.
+
+### Manual wiring (without the helper)
+
+If you need finer control (biometric gating, multiple keys, custom
+access control), construct the signer closure yourself:
+
+```swift
+import Security
+import Sentlog
+
 let access = SecAccessControlCreateWithFlags(
     nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-    .privateKeyUsage, nil)!
+    [.privateKeyUsage, .biometryCurrentSet],   // biometric-gated
+    nil)!
 let attrs: [String: Any] = [
-    kSecAttrKeyType    as String: kSecAttrKeyTypeECSECPrimeRandom,
-    kSecAttrKeySizeInBits as String: 256,
-    kSecAttrTokenID    as String: kSecAttrTokenIDSecureEnclave,
+    kSecAttrKeyType as String:           kSecAttrKeyTypeECSECPrimeRandom,
+    kSecAttrKeySizeInBits as String:     256,
+    kSecAttrTokenID as String:           kSecAttrTokenIDSecureEnclave,
     kSecPrivateKeyAttrs as String: [
-        kSecAttrIsPermanent  as String: true,
-        kSecAttrApplicationTag as String: "me.cooki.sentlog.signing".data(using: .utf8)!,
+        kSecAttrIsPermanent as String:   true,
+        kSecAttrApplicationTag as String: "me.example.myapp.sentlog".data(using: .utf8)!,
         kSecAttrAccessControl as String: access,
     ]
 ]
-var error: Unmanaged<CFError>?
-let privateKey = SecKeyCreateRandomKey(attrs as CFDictionary, &error)!
-
-// 2. Wire the SE-backed signer.
+let privateKey = SecKeyCreateRandomKey(attrs as CFDictionary, nil)!
 try Sentlog.setHardwareSigner(
     { canonicalBytes in
-        let sig = SecKeyCreateSignature(
+        SecKeyCreateSignature(
             privateKey,
             .ecdsaSignatureMessageX962SHA256,
-            canonicalBytes as CFData,
-            nil)
-        return sig as Data?
+            canonicalBytes as CFData, nil) as Data?
     },
     cryptosuite: "ecdsa-jcs-2019",
-    verificationMethod: "did:key:zHwSentlogYourPubKey")  // see below
+    verificationMethod: "did:key:zYourPubKeyMultibase")
 ```
 
-`verificationMethod` becomes `proof.verificationMethod` in the
-envelope. The verifier resolves it to your public key. For Secure
-Enclave keys, derive a `did:key:` URI from the exported public key
-once at key-creation time and persist it.
+The `verificationMethod` becomes `proof.verificationMethod` in the
+envelope. For did:key derivation see the multicodec prefix `0x1200`
+(P-256 compressed) + base58btc — or use the helper above which does
+it for you.
 
 ## Android (Kotlin)
 
