@@ -8,6 +8,8 @@ import kotlinx.serialization.json.Json
 import me.cooki.sentlog.internal.AasistLivenessRunner
 import me.cooki.sentlog.internal.AudioCapture
 import me.cooki.sentlog.internal.AudioRouteDetector
+import me.cooki.sentlog.internal.DrainCallback
+import me.cooki.sentlog.internal.EnvelopeDispatcher
 import me.cooki.sentlog.internal.MotionCapture
 import me.cooki.sentlog.internal.NativeBridge
 import me.cooki.sentlog.internal.ResultCallback
@@ -313,11 +315,87 @@ public object Sentlog {
     }
 
     /**
-     * Drain a local-queue forwarder file. Phase 4 implementation;
-     * Phase 2a returns 0 unconditionally.
+     * Phase 4d: register the Ed25519 signing key the SDK uses to
+     * populate the W3C VC 2.0 envelope's `proof` block.
+     * `secretKey` is the 64-byte RFC 8032 seed||pubkey concatenation;
+     * the integrator obtains it from libsodium / a hardware-backed
+     * KeyStore. Throws [IllegalArgumentException] on wrong-length keys.
+     *
+     * Without a registered key, envelopes are emitted unsigned (no
+     * proof block). Hardware-backed signing lands in Phase 7 with
+     * `ecdsa-jcs-2019`.
      */
-    @Suppress("UNUSED_PARAMETER")
-    public fun drainQueue(path: String, drain: (String) -> Boolean): Int = 0
+    @Synchronized
+    public fun setSigningKey(secretKey: ByteArray, verificationMethod: String) {
+        val h = requireHandle()
+        val s = NativeBridge.nativeSetSigningKey(h, secretKey, verificationMethod)
+        when (s) {
+            NativeBridge.STATUS_OK -> {}
+            NativeBridge.STATUS_ERR_INVALID_CONFIG ->
+                throw IllegalArgumentException(
+                    "setSigningKey rejected: key must be 64 bytes (RFC 8032 seed||pubkey)")
+            else ->
+                throw IllegalStateException("setSigningKey failed (status=$s)")
+        }
+    }
+
+    /**
+     * Phase 4d: register (or clear, with `null`) the per-handle
+     * envelope dispatcher. The lambda fires once per configured
+     * forwarder after [evaluate], for sinks other than `local_queue`
+     * (the C++ core writes those to file). The lambda runs on the
+     * SDK's I/O thread; long-running work (HTTP POSTs, etc.) should
+     * hand off to the integrator's own scheduler.
+     *
+     * Same shape as the iOS counterpart. Exceptions thrown inside
+     * the lambda are caught + logged by the JNI trampoline so the
+     * dispatch loop survives.
+     */
+    @Synchronized
+    public fun setEnvelopeDispatcher(
+        handler: ((forwarderName: String,
+                   sinkKind: String,
+                   sinkJson: String,
+                   envelopeJson: String) -> Unit)?,
+    ) {
+        val h = requireHandle()
+        val adapter = handler?.let {
+            object : EnvelopeDispatcher() {
+                override fun onEnvelope(
+                    forwarderName: String,
+                    sinkKind: String,
+                    sinkJson: String,
+                    envelopeJson: String,
+                ) {
+                    it(forwarderName, sinkKind, sinkJson, envelopeJson)
+                }
+            }
+        }
+        val s = NativeBridge.nativeSetEnvelopeDispatcher(h, adapter)
+        if (s != NativeBridge.STATUS_OK) {
+            throw IllegalStateException("setEnvelopeDispatcher failed (status=$s)")
+        }
+    }
+
+    /**
+     * Drain a local-queue forwarder file (NDJSON). For each envelope
+     * in the file, [drain] is invoked; return `true` to remove the
+     * envelope from the queue, `false` to keep it for a later drain.
+     * Returns the number of envelopes delivered.
+     *
+     * Safe to call without a live SDK handle — the file I/O doesn't
+     * need one. The C ABI takes a handle for forward-compatibility
+     * with future telemetry; today it's ignored.
+     */
+    public fun drainQueue(path: String, drain: (String) -> Boolean): Int {
+        // Use the current handle if initialized; pass 0 otherwise.
+        // sentlog_drain_queue tolerates a null handle.
+        return NativeBridge.nativeDrainQueue(handle, path,
+            object : DrainCallback() {
+                override fun onEnvelope(envelopeJson: String): Boolean =
+                    drain(envelopeJson)
+            })
+    }
 
     /**
      * Release all SDK resources. Safe to call multiple times. After

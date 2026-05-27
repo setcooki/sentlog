@@ -136,6 +136,26 @@ void on_telemetry(const char* event_json, void* userdata) {
     });
 }
 
+int on_drain_envelope(const char* envelope_json, size_t /*len*/, void* userdata) {
+    auto* cb = static_cast<GlobalCallback*>(userdata);
+    int keep_or_delete = 0;
+    with_jni_env([&](JNIEnv* env) {
+        jstring js = env->NewStringUTF(envelope_json ? envelope_json : "");
+        const jboolean ret =
+            env->CallBooleanMethod(cb->ref, cb->method, js);
+        if (env->ExceptionCheck()) {
+            LOGE("drain callback threw; treating as 'keep' to be safe");
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+            keep_or_delete = 0;
+        } else {
+            keep_or_delete = (ret == JNI_TRUE) ? 1 : 0;
+        }
+        env->DeleteLocalRef(js);
+    });
+    return keep_or_delete;
+}
+
 void on_envelope_dispatch(const char* forwarder_name,
                           const char* sink_kind,
                           const char* sink_json,
@@ -515,6 +535,37 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeCheckForUpdates(
         delete userdata;
     }
     return static_cast<jint>(s);
+}
+
+JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativeDrainQueue(
+    JNIEnv* env, jclass /*clazz*/, jlong handle,
+    jstring path_j, jobject drain_cb_obj) {
+
+    if (path_j == nullptr || drain_cb_obj == nullptr) return 0;
+
+    const jclass cb_cls = env->GetObjectClass(drain_cb_obj);
+    const jmethodID m = env->GetMethodID(
+        cb_cls, "onEnvelope", "(Ljava/lang/String;)Z");
+    env->DeleteLocalRef(cb_cls);
+    if (m == nullptr) return 0;
+
+    // GlobalRef + userdata box live only for the duration of this
+    // call — drain is synchronous, unlike telemetry/dispatcher
+    // which are long-lived.
+    jobject ref = env->NewGlobalRef(drain_cb_obj);
+    GlobalCallback gcb{ref, m};
+
+    const char* path = env->GetStringUTFChars(path_j, nullptr);
+    if (path == nullptr) {
+        env->DeleteGlobalRef(ref);
+        return 0;
+    }
+    const int delivered = sentlog_drain_queue(
+        native_from_jlong(handle), path, &on_drain_envelope, &gcb);
+    env->ReleaseStringUTFChars(path_j, path);
+    env->DeleteGlobalRef(ref);
+    return static_cast<jint>(delivered);
 }
 
 }  // extern "C"

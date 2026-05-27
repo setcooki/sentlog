@@ -73,6 +73,15 @@ internal object NativeBridge {
     @JvmStatic external fun nativeModelVersions(handle: Long): String?
     @JvmStatic external fun nativeCheckForUpdates(handle: Long, updateCb: UpdateCallback): Int
 
+    /** Phase 4i: drain a local-queue NDJSON file at [path]. Returns
+     *  the number of envelopes delivered to [cb]. The cb returns
+     *  true to delete the envelope from the queue, false to keep
+     *  it. Handle may be 0 — drain is file-only and doesn't need a
+     *  live SDK. */
+    @JvmStatic external fun nativeDrainQueue(
+        handle: Long, path: String, cb: DrainCallback,
+    ): Int
+
     /** Phase 4d: install (or replace, when [secretKey] != null) the
      *  Ed25519 secret key the SDK uses to sign envelopes. The key is
      *  the 64-byte RFC 8032 seed||pubkey concatenation; obtain it
@@ -102,6 +111,13 @@ internal abstract class ResultCallback {
 /** Invoked by JNI once per [NativeBridge.nativeCheckForUpdates] call. */
 internal abstract class UpdateCallback {
     abstract fun onUpdate(status: Int, updateJson: String?)
+}
+
+/** Invoked by JNI once per envelope inside [NativeBridge.nativeDrainQueue].
+ *  Return true to delete the envelope from the queue, false to keep
+ *  it for a later drain. */
+internal abstract class DrainCallback {
+    abstract fun onEnvelope(envelopeJson: String): Boolean
 }
 
 /** Invoked by JNI once per non-local-queue forwarder after evaluate.

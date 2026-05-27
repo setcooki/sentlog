@@ -37,7 +37,7 @@ required structure:
   "credentialSubject": { <Sentlog payload> },
   "proof": {
     "type": "DataIntegrityProof",
-    "cryptosuite": "eddsa-rdfc-2022",   // or "ecdsa-rdfc-2019"
+    "cryptosuite": "eddsa-jcs-2022",    // or "ecdsa-jcs-2019" for hardware (Phase 7)
     "created": "<ISO 8601>",
     "verificationMethod": "<integrator-supplied key id>",
     "proofPurpose": "assertionMethod",
@@ -47,9 +47,16 @@ required structure:
 }
 ```
 
-The proof cryptosuite is **`eddsa-rdfc-2022`** when signing in software
-(Ed25519), or **`ecdsa-rdfc-2019`** when signing via hardware
-(Secure Enclave / KeyStore — ECDSA-P256).
+The proof cryptosuite is **`eddsa-jcs-2022`** when signing in software
+(Ed25519), or **`ecdsa-jcs-2019`** when signing via hardware
+(Secure Enclave / KeyStore — ECDSA-P256; Phase 7).
+
+JCS canonicalisation (RFC 8785) rather than RDFC because the latter
+requires a URDNA2015 implementation (~5000 lines of RDF dataset
+canonicalisation logic) with no small embedded variant worth
+vendoring. Both `eddsa-jcs-2022` and `ecdsa-jcs-2019` are
+W3C-registered DataIntegrity cryptosuites; the choice is
+implementation-driven, not interoperability-driven.
 
 **Sentlog does not run a key infrastructure.** The integrator supplies
 `issuer` (any URI or DID) and `signing_key_id` at init. The SDK ensures

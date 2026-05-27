@@ -30,7 +30,13 @@ public enum Sentlog {
     private static var motion:    MotionCapture?
     private static var currentConfig: SentlogConfig?
     private static var telemetry: NativeBridge.TelemetryBox?
-    private static var dispatcher: NativeBridge.DispatcherBox?
+    /// Opaque pointer to the DispatcherBox passed to the C ABI as
+    /// `userdata` via `Unmanaged.passRetained(box).toOpaque()`. The
+    /// box's lifetime is the +1 retain that ptr "owns"; release via
+    /// `Unmanaged<DispatcherBox>.fromOpaque(ptr).release()` to
+    /// balance. Stored as opaque (not the box itself) so the
+    /// retain/release stays symmetric.
+    private static var dispatcherUserdata: UnsafeMutableRawPointer?
     private static let stateLock = NSLock()
 
     private static let encoder: JSONEncoder = {
@@ -345,11 +351,38 @@ public enum Sentlog {
         return try decoder.decode(UpdateResult.self, from: data)
     }
 
-    /// Drain a local queue. Phase 4; Phase 2a returns 0.
+    /// Drain a local-queue forwarder file (NDJSON). For each
+    /// envelope in the file, `drain` is invoked; return `true` to
+    /// remove the envelope from the queue, `false` to keep it for a
+    /// later drain. Returns the number of envelopes delivered.
+    ///
+    /// Safe to call without a live SDK handle — the file I/O is
+    /// pure POSIX, no Sentlog state required. We pass the current
+    /// handle when available (the C ABI tolerates null).
     public static func drainQueue(path: String,
                                   drain: (String) -> Bool) -> Int {
-        _ = path; _ = drain
-        return 0
+        // sentlog_drain_queue is synchronous — the closure cb fires
+        // before the call returns and then never again. Use
+        // withoutActuallyEscaping so we can hand the non-escaping
+        // closure across the C ABI boundary without needing the
+        // caller to mark it @escaping.
+        return withoutActuallyEscaping(drain) { escapingDrain in
+            final class DrainBox {
+                let cb: (String) -> Bool
+                init(_ c: @escaping (String) -> Bool) { cb = c }
+            }
+            let box = DrainBox(escapingDrain)
+            let userdata = Unmanaged.passUnretained(box).toOpaque()
+            let cb: sentlog_drain_cb_t = { jsonCStr, _len, ud in
+                guard let ud, let jsonCStr else { return 0 }
+                let b = Unmanaged<DrainBox>.fromOpaque(ud).takeUnretainedValue()
+                return b.cb(String(cString: jsonCStr)) ? 1 : 0
+            }
+            stateLock.lock()
+            let h = handle
+            stateLock.unlock()
+            return Int(sentlog_drain_queue(h, path, cb, userdata))
+        }
     }
 
     /// Phase 4d: register the Ed25519 signing key the SDK uses to
@@ -401,17 +434,14 @@ public enum Sentlog {
 
         guard let handler else {
             // Clear at the C ABI first so the trampoline stops
-            // firing, then release our retained box.
+            // firing, then release our retained box via the
+            // symmetric fromOpaque(...).release().
             let s = sentlog_set_envelope_dispatcher(h, nil, nil)
             try NativeBridge.mustSucceed(s, "setEnvelopeDispatcher.clear")
-            if let prev = dispatcher {
-                // Release the previously-retained box (its Unmanaged
-                // pointer was handed to the C ABI as userdata at
-                // registration; clearing above means the C ABI no
-                // longer references it, so the trailing release
-                // matches the original passRetained).
-                Unmanaged.passUnretained(prev).release()
-                dispatcher = nil
+            if let prev = dispatcherUserdata {
+                Unmanaged<NativeBridge.DispatcherBox>
+                    .fromOpaque(prev).release()
+                dispatcherUserdata = nil
             }
             return
         }
@@ -440,10 +470,11 @@ public enum Sentlog {
         // Release the previous registration's retain (if any) only
         // after the new one is accepted by the C ABI — keeps the old
         // box alive until the swap point.
-        if let prev = dispatcher {
-            Unmanaged.passUnretained(prev).release()
+        if let prev = dispatcherUserdata {
+            Unmanaged<NativeBridge.DispatcherBox>
+                .fromOpaque(prev).release()
         }
-        dispatcher = box
+        dispatcherUserdata = userdata
     }
 
     /// Release the SDK handle. Safe to call multiple times.
@@ -469,9 +500,10 @@ public enum Sentlog {
             sentlog_destroy(h)
             handle = nil
         }
-        if let prev = dispatcher {
-            Unmanaged.passUnretained(prev).release()
-            dispatcher = nil
+        if let prev = dispatcherUserdata {
+            Unmanaged<NativeBridge.DispatcherBox>
+                .fromOpaque(prev).release()
+            dispatcherUserdata = nil
         }
         telemetry = nil
         currentConfig = nil
@@ -490,11 +522,23 @@ public enum Sentlog {
         from cFn: (OpaquePointer?) -> UnsafeMutablePointer<CChar>?,
         label: String
     ) throws -> T {
+        // Hold stateLock across the C call so a concurrent
+        // destroy() can't free the handle between our read and the
+        // cFn invocation. JSON decode happens outside the lock —
+        // it operates on a heap copy of the C string we own via
+        // sentlog_string_free.
         stateLock.lock()
-        let h = try requireHandleLocked()
+        let cstr: UnsafeMutablePointer<CChar>?
+        do {
+            let h = try requireHandleLocked()
+            cstr = cFn(h)
+        } catch {
+            stateLock.unlock()
+            throw error
+        }
         stateLock.unlock()
 
-        guard let cstr = cFn(h) else {
+        guard let cstr else {
             throw SentlogError(status: SENTLOG_ERR_INTERNAL, context: "\(label)-null")
         }
         defer { sentlog_string_free(cstr) }
