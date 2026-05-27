@@ -178,3 +178,12 @@ jobs:
       - name: Self-test (sign-then-verify round trip with RFC 8032 vector 1)
         working-directory: tools/evidence-verifier
         run: python3 selftest.py
+
+  types-parity:
+    name: tools (types parity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify rn/ + capacitor/ types are byte-equal to canonical
+        run: tools/check-types-parity.sh
