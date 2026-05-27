@@ -303,6 +303,51 @@ tool. Soak runs in parallel through weeks 14–16.
 
 Exit: v1.0 internal release at end of week 16 (~end of month 4).
 
+**Shipped in Phase 7**:
+
+- 7a: OTA manifest parse + Ed25519 verify primitive in `shared/src/
+  internal/ota.{h,cpp}`. Wire format documented in spec §5.1.
+- 7b-i: C ABI `sentlog_check_for_updates(handle, bytes, len, cb, ud)`
+  + `SentlogConfig.manifest_url` / `manifest_pubkeys` with paired-
+  override validation (mixed source rejected at init).
+- 7b-ii: Platform HTTPS fetch via stdlib (`URLSession` on iOS,
+  `HttpURLConnection` on Android) wired into the no-arg
+  `Sentlog.checkForUpdates()`. HTTPS-only, 10 s timeout, 64 KB cap.
+- 7c-i: Hardware-signer architecture — `sentlog_set_hardware_signer`
+  C ABI + signer-callback pattern, `evidence_grade` promotion to
+  `EnclaveSigned` on hw success, `HardwareSigningUnavailable`
+  telemetry on fallback, drop-on-required.
+- 7c-ii: iOS Swift `setHardwareSigner` public API with the
+  Unmanaged.passRetained box pattern.
+- 7d-stub: Android Kotlin `setHardwareSigner` + JNI trampoline with
+  exception-safe ByteArray round-trip.
+- 7f: `on_telemetry` sweep — `PipelineTiming`, `ScoreHistogram`
+  (0.1-width buckets for the three top-level scores),
+  `ForwarderOutcome=ok`, `CaptureAborted`, `ManifestVerifyFailed`
+  events fire from the appropriate emission points.
+- 7g: Integrator-facing documentation in `docs/integration/`
+  (README, hardware-signing, ota, telemetry) +
+  `docs/deprecation-policy.md`.
+
+**Deferred to Phase 7.5 (post-Phase 7)**:
+
+- **Real Secure Enclave + KeyStore signers**. The hardware-signer
+  architecture ships in 7c, exposed via `setHardwareSigner` on both
+  platforms — integrators wanting hw signing today supply their own
+  SE / KeyStore-backed closure (full worked examples in
+  `docs/integration/hardware-signing.md`). A SDK-bundled
+  `SecureEnclaveSigner` (iOS) / `KeyStoreSigner` (Android) helper
+  that takes care of key creation + biometric prompts + StrongBox
+  fallback lands in 7.5 without changing the API.
+- **≥72 h soak** across both integrator apps. Real-device-dependent;
+  belongs alongside the integrator-side rollout, not the SDK team's
+  critical path.
+- **v1.0 cut + release notes + upgrade guide**. Pending the soak
+  + helper-signer work; upgrade guide is a stub until there's a prior
+  released version to upgrade from.
+- `tools/evidence-verifier/` — already shipped in Phase 4i; listed
+  here in the rollout plan but not re-deferred.
+
 ### Phase 8 — Public release readiness (Months 4+)
 
 Starts at the end of Phase 7. Specific items are gated by the corpus
