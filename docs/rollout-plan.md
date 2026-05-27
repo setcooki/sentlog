@@ -348,6 +348,34 @@ Exit: v1.0 internal release at end of week 16 (~end of month 4).
 - `tools/evidence-verifier/` — already shipped in Phase 4i; listed
   here in the rollout plan but not re-deferred.
 
+**Shipped in Phase 7.5 (partial — sub-chunks 7.5-i + 7.5-ii)**:
+
+- **7.5-i**: `SecureEnclaveSigner` Swift helper
+  (`ios/Sources/Sentlog/SecureEnclaveSigner.swift`). ECDSA-P256 key
+  creation inside the Secure Enclave under an integrator-named
+  keychain tag, keychain persistence + lookup, raw P-256 pubkey
+  export, `did:key:` URI derivation (multicodec 0x1200 + compressed
+  pubkey + base58btc, inline impl). Convenience overload:
+  `Sentlog.setHardwareSigner(_ signer: SecureEnclaveSigner)`.
+- **7.5-ii**: `KeyStoreSigner` Kotlin helper
+  (`android/sentlog/src/main/kotlin/me/cooki/sentlog/KeyStoreSigner.kt`).
+  ECDSA-P256 in AndroidKeyStore with transparent StrongBox fallback
+  (handles `StrongBoxUnavailableException` + the Samsung early-API-28
+  `ProviderException` edge case), same raw-pubkey + did:key surface
+  as the iOS helper, exposes `strongBoxBacked: Boolean`.
+  Convenience overload:
+  `Sentlog.setHardwareSigner(signer: KeyStoreSigner)`.
+- `docs/integration/hardware-signing.md` now leads with the two- /
+  three-line helper usage on both platforms; the manual SE /
+  KeyStore wiring stays as a "if you need biometric gating / custom
+  rotation / Ed25519 on API 33+" fallback.
+
+**Still pending in Phase 7.5**:
+
+- **7.5-iv**: ≥72 h soak across both integrator apps; v1.0 cut
+  + release notes + upgrade guide. Real-device + release work; not
+  on the SDK team's CI-loop critical path.
+
 ### Phase 8 — Public release readiness (Months 4+)
 
 Starts at the end of Phase 7. Specific items are gated by the corpus
