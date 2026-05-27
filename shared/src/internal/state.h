@@ -198,6 +198,15 @@ public:
     void set_envelope_dispatcher(sentlog_envelope_dispatch_cb_t cb,
                                  void* userdata) noexcept;
 
+    /// Register (or clear, when cb == nullptr) the hardware signer.
+    /// Returns INVALID_CONFIG if cryptosuite is unrecognised when
+    /// cb != nullptr.
+    sentlog_status_t set_hardware_signer(
+        sentlog_hw_sign_cb_t cb,
+        void* userdata,
+        const std::string& cryptosuite,
+        const std::string& verification_method) noexcept;
+
     /// Dispatch envelopes to the registered dispatcher (and write
     /// local-queue forwarders to file). Called from State::evaluate
     /// after the result JSON is assembled.
@@ -290,6 +299,14 @@ private:
     std::string                                  verification_method_;
     sentlog_envelope_dispatch_cb_t               envelope_dispatcher_{nullptr};
     void*                                        envelope_dispatcher_userdata_{nullptr};
+
+    // Phase 7c hardware signer. When non-null, used in preference to
+    // the software signing_key_ for envelope proof generation.
+    // cryptosuite_ is one of "ecdsa-jcs-2019" / "eddsa-jcs-2022".
+    sentlog_hw_sign_cb_t                         hw_signer_{nullptr};
+    void*                                        hw_signer_userdata_{nullptr};
+    std::string                                  hw_cryptosuite_;
+    std::string                                  hw_verification_method_;
 
     /// Default: UNKNOWN. The platform binding pushes the real route
     /// at startCapture; integrators that never push see audio_source

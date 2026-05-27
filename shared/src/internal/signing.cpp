@@ -8,6 +8,7 @@ extern "C" {
 
 #include <algorithm>
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 namespace sentlog::internal {
@@ -105,6 +106,51 @@ std::array<uint8_t, kEd25519SignatureBytes> ed25519_sign(
     std::array<uint8_t, kEd25519SignatureBytes> sig{};
     std::memcpy(sig.data(), signed_msg.data(), kEd25519SignatureBytes);
     return sig;
+}
+
+// Shared helper: build proof options, canonicalise the envelope-with-
+// proof-options, hand the canonical bytes to the signer callable,
+// reattach proof with the proofValue. Used by both the software
+// (Ed25519 in-process) and hardware (callback-delegated) signing
+// paths so they share the W3C VC Data Integrity §4.4 sequence
+// exactly.
+static std::string sign_envelope_jcs_with_signer(
+    const std::string& unsigned_envelope_json,
+    const std::function<std::vector<uint8_t>(std::string_view)>& signer,
+    const std::string& cryptosuite,
+    const std::string& verification_method,
+    const std::string& created_iso8601_utc) {
+
+    auto env = json::parse(unsigned_envelope_json);
+
+    json proof_options;
+    proof_options["type"]               = "DataIntegrityProof";
+    proof_options["cryptosuite"]        = cryptosuite;
+    proof_options["created"]            = created_iso8601_utc;
+    proof_options["verificationMethod"] = verification_method;
+    proof_options["proofPurpose"]       = "assertionMethod";
+
+    env["proof"] = proof_options;
+    const std::string canonical = jcs_canonicalize(env.dump());
+
+    const std::vector<uint8_t> sig = signer(canonical);
+    if (sig.empty()) {
+        throw std::runtime_error("hardware signer returned empty signature");
+    }
+
+    proof_options["proofValue"] = base64url_no_pad(sig.data(), sig.size());
+    env["proof"] = std::move(proof_options);
+    return env.dump();
+}
+
+std::string sign_envelope_via_hw_jcs(const std::string& unsigned_envelope_json,
+                                     const HardwareSigner& signer,
+                                     const std::string& cryptosuite,
+                                     const std::string& verification_method,
+                                     const std::string& created_iso8601_utc) {
+    return sign_envelope_jcs_with_signer(
+        unsigned_envelope_json, signer, cryptosuite,
+        verification_method, created_iso8601_utc);
 }
 
 std::string sign_envelope_eddsa_jcs(const std::string& unsigned_envelope_json,

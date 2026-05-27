@@ -487,6 +487,25 @@ void State::set_envelope_dispatcher(sentlog_envelope_dispatch_cb_t cb,
     envelope_dispatcher_userdata_ = userdata;
 }
 
+sentlog_status_t State::set_hardware_signer(
+    sentlog_hw_sign_cb_t cb,
+    void* userdata,
+    const std::string& cryptosuite,
+    const std::string& verification_method) noexcept {
+    if (cb != nullptr) {
+        if (cryptosuite != "ecdsa-jcs-2019" &&
+            cryptosuite != "eddsa-jcs-2022") {
+            return SENTLOG_ERR_INVALID_CONFIG;
+        }
+    }
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    hw_signer_              = cb;
+    hw_signer_userdata_     = userdata;
+    hw_cryptosuite_         = (cb != nullptr) ? cryptosuite : std::string();
+    hw_verification_method_ = (cb != nullptr) ? verification_method : std::string();
+    return SENTLOG_OK;
+}
+
 void State::dispatch_envelopes(const std::string& result_json) {
     // Snapshot the dispatcher + signing material under the lock so
     // we don't fire against half-cleared state after a concurrent
@@ -498,6 +517,10 @@ void State::dispatch_envelopes(const std::string& result_json) {
     bool                           sign      = false;
     std::array<uint8_t, 64>        snap_key{};
     std::string                    snap_vm;
+    sentlog_hw_sign_cb_t           hw_cb        = nullptr;
+    void*                          hw_cb_data   = nullptr;
+    std::string                    hw_cryptosuite;
+    std::string                    hw_vm;
     {
         std::lock_guard<std::mutex> lock(signing_mutex_);
         cb       = envelope_dispatcher_;
@@ -507,7 +530,12 @@ void State::dispatch_envelopes(const std::string& result_json) {
             snap_key = signing_key_;
             snap_vm  = verification_method_;
         }
+        hw_cb          = hw_signer_;
+        hw_cb_data     = hw_signer_userdata_;
+        hw_cryptosuite = hw_cryptosuite_;
+        hw_vm          = hw_verification_method_;
     }
+    const bool try_hw = (hw_cb != nullptr) && config_.use_hardware_signing;
 
     // Sampling RNG (Phase 4f). One per dispatch invocation —
     // re-seeded from random_device so two evaluates on the same
@@ -558,20 +586,79 @@ void State::dispatch_envelopes(const std::string& result_json) {
         spec.kind          = projection;
         spec.custom_fields = fw.custom_fields;  // empty for non-Custom
 
+        // Phase 7c: hardware-backed signing takes priority when the
+        // integrator opted in via use_hardware_signing + registered a
+        // hw signer. On hw failure with hardware_signing_required=true
+        // the envelope is dropped; otherwise we fall back to the
+        // software Ed25519 key and emit HardwareSigningUnavailable.
+        //
+        // Evidence-grade promotion: on hw success the envelope's
+        // subject.evidence_grade is rewritten to "EnclaveSigned"
+        // BEFORE canonicalisation+signing, so the signature covers
+        // the promoted value. On fallback we rebuild from result_json
+        // with the original (DeviceUnattested) grade.
         std::string envelope_json;
-        try {
-            envelope_json = build_envelope_unsigned(
-                config_, result_json, valid_from, spec);
-            if (sign) {
-                envelope_json = sign_envelope_eddsa_jcs(
-                    envelope_json, snap_key, snap_vm, valid_from);
+        bool hw_signed = false;
+        if (try_hw) {
+            // Promote evidence_grade in a local result copy and feed
+            // that into envelope build. Cheaper than mutating the
+            // envelope post-build (no re-parse of the full result).
+            try {
+                auto promoted = json::parse(result_json);
+                promoted["evidence_grade"] = "EnclaveSigned";
+                const std::string promoted_str = promoted.dump();
+                envelope_json = build_envelope_unsigned(
+                    config_, promoted_str, valid_from, spec);
+
+                auto signer = [&](std::string_view canonical)
+                    -> std::vector<uint8_t> {
+                    std::vector<uint8_t> sigbuf(128, 0);
+                    size_t out_len = sigbuf.size();
+                    const int rc = hw_cb(
+                        reinterpret_cast<const uint8_t*>(canonical.data()),
+                        canonical.size(),
+                        sigbuf.data(), &out_len, hw_cb_data);
+                    if (rc != 0 || out_len == 0 || out_len > sigbuf.size()) {
+                        return {};
+                    }
+                    sigbuf.resize(out_len);
+                    return sigbuf;
+                };
+                envelope_json = sign_envelope_via_hw_jcs(
+                    envelope_json, signer, hw_cryptosuite, hw_vm, valid_from);
+                hw_signed = true;
+            } catch (...) {
+                hw_signed = false;
             }
-        } catch (...) {
-            // Envelope construction / signing threw — surface it so
-            // the integrator notices, then continue with the next
-            // forwarder so one bad envelope can't take down evaluate.
-            emit_skip(fw.name, "envelope_build_failed");
-            continue;
+
+            if (!hw_signed) {
+                // Hardware signing failed. Required = drop; otherwise
+                // fall back to software signing with a telemetry event
+                // so integrators can detect the silent fallback.
+                if (config_.hardware_signing_required) {
+                    emit_skip(fw.name, "hardware_signing_required_failed");
+                    continue;
+                }
+                json ev;
+                ev["type"]         = "HardwareSigningUnavailable";
+                ev["reason"]       = "signer_call_failed";
+                ev["fell_back_to"] = "software_ed25519";
+                emit_telemetry(ev.dump());
+            }
+        }
+
+        if (!hw_signed) {
+            try {
+                envelope_json = build_envelope_unsigned(
+                    config_, result_json, valid_from, spec);
+                if (sign) {
+                    envelope_json = sign_envelope_eddsa_jcs(
+                        envelope_json, snap_key, snap_vm, valid_from);
+                }
+            } catch (...) {
+                emit_skip(fw.name, "envelope_build_failed");
+                continue;
+            }
         }
 
         if (fw.sink_kind == "local_queue") {

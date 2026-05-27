@@ -246,6 +246,23 @@ sentlog_status_t sentlog_set_envelope_dispatcher(
     return SENTLOG_OK;
 }
 
+sentlog_status_t sentlog_set_hardware_signer(
+    sentlog_handle_t*    handle,
+    sentlog_hw_sign_cb_t cb,
+    void*                userdata,
+    const char*          cryptosuite,
+    const char*          verification_method) {
+    if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
+    if (cb != nullptr &&
+        (cryptosuite == nullptr || verification_method == nullptr)) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
+    return handle->state->set_hardware_signer(
+        cb, userdata,
+        cryptosuite ? std::string(cryptosuite) : std::string(),
+        verification_method ? std::string(verification_method) : std::string());
+}
+
 sentlog_status_t sentlog_check_for_updates(sentlog_handle_t* handle,
                                            const uint8_t*    manifest_bytes,
                                            size_t            manifest_len,

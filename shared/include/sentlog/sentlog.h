@@ -135,6 +135,36 @@ typedef void (*sentlog_envelope_dispatch_cb_t)(
     const char* envelope_json,
     void* userdata);
 
+/* Hardware-backed signing callback (Phase 7c). The platform binding
+ * implements this with whatever the OS exposes: Secure Enclave on
+ * iOS (ECDSA-P256), KeyStore StrongBox on Android (Ed25519 on API
+ * 33+, otherwise ECDSA-P256). The C++ core hands the canonical bytes
+ * to sign and expects the raw signature back.
+ *
+ *   message_bytes        The JCS-canonicalised envelope bytes to sign.
+ *   message_len          Length of message_bytes.
+ *   sig_out_buf          Caller-provided buffer the cb writes the
+ *                        raw signature into. ECDSA-P256 signatures
+ *                        are ASN.1/DER and ≤72 bytes; Ed25519 are
+ *                        fixed 64 bytes. Buffer is sized 128 bytes
+ *                        to cover either.
+ *   sig_out_len_inout    In: capacity of sig_out_buf. Out: bytes
+ *                        actually written.
+ *   userdata             Opaque pass-through.
+ *
+ * Returns 0 on success, non-zero on hardware-signing failure (key
+ * unavailable, user-presence denied, etc.). On failure the C++ core
+ * emits a HardwareSigningUnavailable telemetry event and falls back
+ * to software signing — unless config.hardware_signing_required is
+ * true, in which case envelope dispatch is skipped with a
+ * ForwarderOutcome=dropped telemetry. */
+typedef int (*sentlog_hw_sign_cb_t)(
+    const uint8_t* message_bytes,
+    size_t         message_len,
+    uint8_t*       sig_out_buf,
+    size_t*        sig_out_len_inout,
+    void*          userdata);
+
 /* --------------------------------------------------------------------
  * Lifecycle
  * ----------------------------------------------------------------- */
@@ -408,6 +438,42 @@ sentlog_status_t sentlog_set_envelope_dispatcher(
     sentlog_handle_t* handle,
     sentlog_envelope_dispatch_cb_t cb,
     void* userdata);
+
+/* Register the per-handle hardware-signer callback (Phase 7c). The
+ * binding implements `cb` using the device's secure element —
+ * Secure Enclave on iOS, KeyStore/StrongBox on Android — and the
+ * SDK calls it to sign envelopes in place of the software Ed25519
+ * key registered via sentlog_set_signing_key.
+ *
+ *   cryptosuite           The W3C Data Integrity cryptosuite the
+ *                         signature realises. One of:
+ *                           "ecdsa-jcs-2019"   (Secure Enclave;
+ *                                              Android API 31-32)
+ *                           "eddsa-jcs-2022"   (Android API 33+
+ *                                              KeyStore Ed25519)
+ *   verification_method   Same role as in sentlog_set_signing_key:
+ *                         copied into proof.verificationMethod, the
+ *                         verifier resolves it to the public key.
+ *
+ * Pass `cb = NULL` to clear a previously registered hw signer.
+ *
+ * Selection at dispatch time:
+ *   - hw signer registered + use_hardware_signing=true   → hw signs;
+ *     envelope.evidence_grade is promoted to "EnclaveSigned".
+ *   - hw signer absent OR cb returns non-zero, AND
+ *     hardware_signing_required=false                    → fall back
+ *     to the software Ed25519 key (if any); a
+ *     HardwareSigningUnavailable telemetry event fires.
+ *   - hw signer absent OR cb returns non-zero, AND
+ *     hardware_signing_required=true                     → the
+ *     envelope is not dispatched; a ForwarderOutcome=dropped
+ *     telemetry event fires per affected forwarder. */
+sentlog_status_t sentlog_set_hardware_signer(
+    sentlog_handle_t*    handle,
+    sentlog_hw_sign_cb_t cb,
+    void*                userdata,
+    const char*          cryptosuite,
+    const char*          verification_method);
 
 /* --------------------------------------------------------------------
  * OTA

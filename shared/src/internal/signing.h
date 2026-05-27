@@ -35,8 +35,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace sentlog::internal {
 
@@ -76,6 +78,26 @@ std::string sign_envelope_eddsa_jcs(const std::string& unsigned_envelope_json,
                                     const Ed25519SecretKey& secret_key,
                                     const std::string& verification_method,
                                     const std::string& created_iso8601_utc);
+
+/// Phase 7c hardware-signed proof. Same proof-options canonicalisation
+/// flow as sign_envelope_eddsa_jcs, but the signing step is delegated
+/// to a caller-supplied signer (callable taking the canonical bytes
+/// and returning the raw signature). Used for Secure Enclave
+/// (cryptosuite="ecdsa-jcs-2019") and Android KeyStore Ed25519
+/// (cryptosuite="eddsa-jcs-2022"). The signer's signature length is
+/// not constrained — ECDSA-P256 produces ≤72 bytes (ASN.1/DER) and
+/// Ed25519 is fixed 64.
+///
+/// Throws std::runtime_error on signer failure (empty signature
+/// returned); callers translate to fallback or skip per the
+/// hardware_signing_required policy.
+using HardwareSigner = std::function<std::vector<uint8_t>(std::string_view)>;
+
+std::string sign_envelope_via_hw_jcs(const std::string& unsigned_envelope_json,
+                                     const HardwareSigner& signer,
+                                     const std::string& cryptosuite,
+                                     const std::string& verification_method,
+                                     const std::string& created_iso8601_utc);
 
 }  // namespace sentlog::internal
 

@@ -624,6 +624,13 @@ states this explicitly.
     rather than promoting to `EnclaveSigned`. Integrators that require
     enclave signing set `hardware_signing_required: true` to make
     failure abort `evaluate()`.
+  - **Implementation surface:** C++ exposes the hardware signer as a
+    pluggable callback (`sentlog_set_hardware_signer`) — the platform
+    binding owns the key material and the actual Secure Enclave /
+    KeyStore call. The C++ core handles proof-block assembly + JCS
+    canonicalisation + evidence_grade promotion + fallback telemetry,
+    so adding a new hardware-signing backend is a binding-side change
+    only, not a shared-core change.
 
 ### 5.6 AI-coded code hardening
 
