@@ -130,6 +130,12 @@ object Sentlog {
         signer: ((ByteArray) -> ByteArray?)?,
         cryptosuite: String = "ecdsa-jcs-2019",
         verificationMethod: String = "")
+    fun setHardwareSigner(signer: KeyStoreSigner)   // 7.5-ii convenience overload
+
+    fun pushFaceFrame(timestampNs: Long, valence: Float,
+                      arousal: Float, dominantFauCsv: String? = null)
+    fun setDeviceAttestation(tokenBytes: ByteArray?,
+                             attestationType: String? = null)
 }
 ```
 
@@ -157,6 +163,13 @@ public enum Sentlog {
         _ signer: ((Data) -> Data?)?,
         cryptosuite: String = "ecdsa-jcs-2019",
         verificationMethod: String = "") throws
+    public static func setHardwareSigner(_ signer: SecureEnclaveSigner) throws
+
+    public static func pushFaceFrame(timestampNs: Int64, valence: Float,
+                                     arousal: Float,
+                                     dominantFauCsv: String? = nil) throws
+    public static func setDeviceAttestation(_ tokenBytes: Data?,
+                                            attestationType: String? = nil) throws
 }
 ```
 

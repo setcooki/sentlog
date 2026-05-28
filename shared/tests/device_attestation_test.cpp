@@ -76,9 +76,9 @@ TEST(DeviceAttestationTest, AttestedTokenPromotesGradeAndAppears) {
     ASSERT_TRUE(subject.contains("device_attestation"));
     EXPECT_EQ(subject["device_attestation"]["type"].get<std::string>(),
               "play_integrity");
-    // base64 of {0xCA,0xFE,0xBA,0xBE,0x00,0x11,0x22} → "yv66vgAREg=="
+    // base64 of {0xCA,0xFE,0xBA,0xBE,0x00,0x11,0x22} → "yv66vgARIg=="
     EXPECT_EQ(subject["device_attestation"]["token_b64"].get<std::string>(),
-              "yv66vgAREg==");
+              "yv66vgARIg==");
     sentlog_destroy(h);
 }
 
@@ -122,6 +122,63 @@ TEST(DeviceAttestationTest, ClearingRevertsGrade) {
     EXPECT_EQ(env["credentialSubject"]["evidence_grade"].get<std::string>(),
               "DeviceUnattested");
     EXPECT_FALSE(env["credentialSubject"].contains("device_attestation"));
+    sentlog_destroy(h);
+}
+
+// Combined hw-signing + device-attestation: the envelope should
+// carry the attestation block (independent of signing path) AND the
+// evidence_grade should stay at "EnclaveSigned" — the attestation
+// promotion path only fires when current grade is DeviceUnattested.
+// This is the cross-feature integration the multi-phase audit
+// flagged as missing.
+TEST(DeviceAttestationTest, HwSignedKeepsEnclaveSignedDespiteAttestation) {
+    const char* cfg = R"({
+      "issuer":"did:example:x",
+      "use_hardware_signing":true,
+      "forwarders":[{"name":"a","projection":"ScoresOnly",
+                     "sink":{"kind":"callback"}}]
+    })";
+    sentlog_status_t status = SENTLOG_OK;
+    sentlog_handle_t* h = sentlog_create(cfg, nullptr, nullptr, &status);
+    ASSERT_NE(h, nullptr);
+
+    // Hardware signer (always-success stub).
+    auto hw_cb = [](const uint8_t*, size_t,
+                    uint8_t* sig_out, size_t* sig_len, void*) -> int {
+        const uint8_t bytes[64] = {0x77};   // sentinel; rest zero
+        if (*sig_len < 64) return -1;
+        std::memcpy(sig_out, bytes, 64);
+        *sig_len = 64;
+        return 0;
+    };
+    ASSERT_EQ(sentlog_set_hardware_signer(
+                  h, hw_cb, nullptr,
+                  "ecdsa-jcs-2019", "did:example:hw"),
+              SENTLOG_OK);
+
+    // Push attestation alongside.
+    const uint8_t token[] = {0x01, 0x02, 0x03};
+    ASSERT_EQ(sentlog_set_device_attestation(
+                  h, token, sizeof(token), "play_integrity"),
+              SENTLOG_OK);
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &dispatcher_cb, &dcap),
+              SENTLOG_OK);
+
+    run_one(h);
+
+    ASSERT_EQ(dcap.envelopes.size(), 1u);
+    const auto env = json::parse(dcap.envelopes[0]);
+    const auto& subject = env["credentialSubject"];
+    // Both blocks present:
+    EXPECT_EQ(subject["evidence_grade"].get<std::string>(), "EnclaveSigned");
+    ASSERT_TRUE(subject.contains("device_attestation"));
+    EXPECT_EQ(subject["device_attestation"]["type"].get<std::string>(),
+              "play_integrity");
+    // proof is ecdsa-jcs-2019 (hw), not eddsa (software).
+    ASSERT_TRUE(env.contains("proof"));
+    EXPECT_EQ(env["proof"]["cryptosuite"].get<std::string>(),
+              "ecdsa-jcs-2019");
     sentlog_destroy(h);
 }
 

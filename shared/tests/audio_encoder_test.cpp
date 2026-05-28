@@ -185,6 +185,40 @@ TEST(AudioEncoderTest, NonClipProjectionsDoNotInvokeEncoder) {
     sentlog_destroy(h);
 }
 
+TEST(AudioEncoderTest, EncoderFailureFallsBackToPlaceholder) {
+    // Encoder returns non-zero → envelope falls back to the
+    // documented placeholder block + the forwarder still dispatches
+    // (no skip telemetry, no exception). Counterpart to the
+    // "no encoder registered" path above.
+    const char* cfg = R"({
+      "issuer":"did:example:x",
+      "forwarders":[{"name":"a","projection":"EvidenceClip",
+                     "sink":{"kind":"callback"}}]
+    })";
+    sentlog_status_t status = SENTLOG_OK;
+    sentlog_handle_t* h = sentlog_create(cfg, nullptr, nullptr, &status);
+    ASSERT_NE(h, nullptr);
+
+    auto failing_cb = [](const float*, size_t, int,
+                         uint8_t*, size_t*, void*) -> int {
+        return -42;  // signal failure
+    };
+    ASSERT_EQ(sentlog_set_audio_encoder(h, failing_cb, nullptr, "opus"),
+              SENTLOG_OK);
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &dispatcher_cb, &dcap),
+              SENTLOG_OK);
+
+    run_one_evaluation(h);
+
+    ASSERT_EQ(dcap.envelopes.size(), 1u);
+    const auto env = json::parse(dcap.envelopes[0]);
+    const auto& clip = env["credentialSubject"]["payload"]["audio_clip"];
+    EXPECT_EQ(clip["bytes"].get<std::string>(), "");
+    EXPECT_TRUE(clip.contains("note"));   // placeholder ships
+    sentlog_destroy(h);
+}
+
 TEST(AudioEncoderTest, RejectsRegisterWithEmptyCodecName) {
     const char* cfg = R"({"issuer":"did:example:x"})";
     sentlog_status_t status = SENTLOG_OK;
