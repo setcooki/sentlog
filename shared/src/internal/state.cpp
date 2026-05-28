@@ -581,6 +581,13 @@ void State::set_envelope_dispatcher(sentlog_envelope_dispatch_cb_t cb,
     envelope_dispatcher_userdata_ = userdata;
 }
 
+void State::set_tsa_provider(sentlog_tsa_provider_cb_t cb,
+                             void* userdata) noexcept {
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    tsa_provider_cb_       = cb;
+    tsa_provider_userdata_ = userdata;
+}
+
 void State::set_audio_encoder(sentlog_audio_encoder_cb_t cb,
                               void* userdata,
                               const std::string& codec_name) noexcept {
@@ -832,6 +839,75 @@ void State::dispatch_envelopes(const std::string& result_json) {
             } catch (...) {
                 emit_skip(fw.name, "envelope_build_failed");
                 continue;
+            }
+        }
+
+        // Phase 4h: TSA timestamping. Engaged when both tsa_endpoint
+        // is configured AND a provider is registered. The provider
+        // hashes the proof.proofValue + POSTs to the TSA + returns
+        // the DER TimeStampResp bytes. We attach as a sidecar
+        // `tsa_timestamp` field OUTSIDE the proof block — the
+        // signature was over the envelope without TSA; verifiers
+        // check proof first, then validate the TSA against the
+        // proof's bytes. On failure: tsa_required = drop, else
+        // continue + emit TsaRequestFailed.
+        if (config_.tsa_endpoint.has_value()) {
+            sentlog_tsa_provider_cb_t tsa_cb       = nullptr;
+            void*                     tsa_userdata = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(signing_mutex_);
+                tsa_cb       = tsa_provider_cb_;
+                tsa_userdata = tsa_provider_userdata_;
+            }
+            bool tsa_attached = false;
+            std::string tsa_failure_reason;
+            if (tsa_cb != nullptr) {
+                try {
+                    auto env = json::parse(envelope_json);
+                    if (env.contains("proof") &&
+                        env["proof"].contains("proofValue") &&
+                        env["proof"]["proofValue"].is_string()) {
+                        const std::string pv =
+                            env["proof"]["proofValue"].get<std::string>();
+                        std::vector<uint8_t> token(16 * 1024);
+                        size_t token_len = token.size();
+                        const int rc = tsa_cb(
+                            reinterpret_cast<const uint8_t*>(pv.data()),
+                            pv.size(),
+                            config_.tsa_endpoint->c_str(),
+                            config_.tsa_timeout_ms,
+                            token.data(), &token_len, tsa_userdata);
+                        if (rc == 0 && token_len > 0 &&
+                            token_len <= token.size()) {
+                            json ts;
+                            ts["provider"] = *config_.tsa_endpoint;
+                            ts["token_b64"] =
+                                base64_standard(token.data(), token_len);
+                            env["tsa_timestamp"] = std::move(ts);
+                            envelope_json = env.dump();
+                            tsa_attached = true;
+                        } else {
+                            tsa_failure_reason = "tsa_provider_returned_error";
+                        }
+                    } else {
+                        tsa_failure_reason = "no_proof_to_stamp";
+                    }
+                } catch (...) {
+                    tsa_failure_reason = "envelope_parse_failed";
+                }
+            } else {
+                tsa_failure_reason = "no_tsa_provider_registered";
+            }
+            if (!tsa_attached) {
+                json ev;
+                ev["type"]    = "TsaRequestFailed";
+                ev["tsa_url"] = *config_.tsa_endpoint;
+                ev["reason"]  = tsa_failure_reason;
+                emit_telemetry(ev.dump());
+                if (config_.tsa_required) {
+                    emit_skip(fw.name, "tsa_required_failed");
+                    continue;
+                }
             }
         }
 

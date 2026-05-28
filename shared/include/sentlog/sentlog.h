@@ -135,6 +135,42 @@ typedef void (*sentlog_envelope_dispatch_cb_t)(
     const char* envelope_json,
     void* userdata);
 
+/* RFC 3161 TSA-provider callback (Phase 4h). The platform binding
+ * computes SHA-256 over the bytes the SDK hands it (the envelope's
+ * proof.proofValue UTF-8 bytes), wraps the digest in a TimeStampReq,
+ * POSTs to SentlogConfig.tsa_endpoint with Content-Type:
+ * application/timestamp-query, and returns the DER-encoded
+ * TimeStampResp bytes from the TSA.
+ *
+ * Native crypto + native HTTP both live on the binding side
+ * (CryptoKit / URLSession on iOS, MessageDigest / HttpURLConnection
+ * on Android) — the C++ core stays codec-free.
+ *
+ *   to_hash_bytes          Bytes to digest + timestamp (envelope's
+ *                          proof.proofValue, base64url-encoded).
+ *   to_hash_len            Length of to_hash_bytes.
+ *   tsa_endpoint_url       The full TSA URL from SentlogConfig.
+ *                          Passed through unchanged.
+ *   timeout_ms             From SentlogConfig.tsa_timeout_ms.
+ *   token_out_buf          DER-encoded TimeStampResp from the TSA.
+ *                          Buffer sized 16 KiB; typical responses are
+ *                          1–4 KiB.
+ *   token_out_len_inout    In: capacity. Out: bytes written.
+ *
+ * Returns 0 on success, non-zero on fetch / TSA failure. On failure
+ * the SDK emits a TsaRequestFailed telemetry event; the envelope
+ * ships without the tsa_timestamp block — unless
+ * SentlogConfig.tsa_required is true, in which case the forwarder
+ * drops with a ForwarderOutcome=dropped telemetry. */
+typedef int (*sentlog_tsa_provider_cb_t)(
+    const uint8_t* to_hash_bytes,
+    size_t         to_hash_len,
+    const char*    tsa_endpoint_url,
+    int            timeout_ms,
+    uint8_t*       token_out_buf,
+    size_t*        token_out_len_inout,
+    void*          userdata);
+
 /* Audio encoder callback (Phase 4g). The platform binding implements
  * this with the OS-native codec — AudioToolbox AVAudioConverter on
  * iOS, MediaCodec on Android — typically producing Opus bytes. The
@@ -517,6 +553,17 @@ sentlog_status_t sentlog_set_audio_encoder(
     sentlog_audio_encoder_cb_t cb,
     void*                      userdata,
     const char*                codec_name);
+
+/* Register (or clear, when cb == NULL) the per-handle RFC 3161 TSA
+ * provider. Engaged only when SentlogConfig.tsa_endpoint is set; the
+ * `tsa_endpoint` URL is opaque to the C++ core — the binding owns
+ * the HTTPS POST. Without a registered provider, the SDK falls back
+ * to no-TSA mode (TsaRequestFailed telemetry on every evaluate the
+ * config asked for TSA; ForwarderOutcome=dropped when tsa_required). */
+sentlog_status_t sentlog_set_tsa_provider(
+    sentlog_handle_t*         handle,
+    sentlog_tsa_provider_cb_t cb,
+    void*                     userdata);
 
 /* --------------------------------------------------------------------
  * OTA

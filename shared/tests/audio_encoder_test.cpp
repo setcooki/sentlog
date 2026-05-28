@@ -64,7 +64,7 @@ void run_one_evaluation(sentlog_handle_t* h) {
     // dispatch_envelopes snapshots it. Values don't matter; the stub
     // encoder ignores the PCM and returns the fixed payload.
     std::vector<float> pcm(256, 0.0f);
-    sentlog_push_audio(h, pcm.data(), pcm.size());
+    sentlog_push_audio_frame(h, pcm.data(), pcm.size());
     sentlog_evaluate(h, [](sentlog_status_t, const char*, void*) {},
                      nullptr);
 }

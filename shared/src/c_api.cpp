@@ -246,6 +246,15 @@ sentlog_status_t sentlog_set_envelope_dispatcher(
     return SENTLOG_OK;
 }
 
+sentlog_status_t sentlog_set_tsa_provider(
+    sentlog_handle_t*         handle,
+    sentlog_tsa_provider_cb_t cb,
+    void*                     userdata) {
+    if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
+    handle->state->set_tsa_provider(cb, userdata);
+    return SENTLOG_OK;
+}
+
 sentlog_status_t sentlog_set_audio_encoder(
     sentlog_handle_t*          handle,
     sentlog_audio_encoder_cb_t cb,

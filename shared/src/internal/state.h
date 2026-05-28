@@ -214,6 +214,12 @@ public:
                            void* userdata,
                            const std::string& codec_name) noexcept;
 
+    /// Register (or clear, when cb == nullptr) the RFC 3161 TSA
+    /// provider. The SDK calls this after envelope signing when
+    /// SentlogConfig.tsa_endpoint is set.
+    void set_tsa_provider(sentlog_tsa_provider_cb_t cb,
+                          void* userdata) noexcept;
+
     /// Internal accessors for the dispatch loop.
     sentlog_audio_encoder_cb_t audio_encoder_cb() const noexcept;
     void*                      audio_encoder_userdata() const noexcept;
@@ -335,6 +341,10 @@ private:
     sentlog_audio_encoder_cb_t                   audio_encoder_cb_{nullptr};
     void*                                        audio_encoder_userdata_{nullptr};
     std::string                                  audio_encoder_codec_;
+
+    // Phase 4h TSA provider. Engaged when config.tsa_endpoint is set.
+    sentlog_tsa_provider_cb_t                    tsa_provider_cb_{nullptr};
+    void*                                        tsa_provider_userdata_{nullptr};
 
     /// Default: UNKNOWN. The platform binding pushes the real route
     /// at startCapture; integrators that never push see audio_source
