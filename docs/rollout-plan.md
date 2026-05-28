@@ -148,21 +148,37 @@ at `tools/reference-consumer/`. End-to-end forwarder integration test
 on both platforms. Envelope verifies cleanly against a generic
 VC-2.0-aware verifier.
 
-**Deferred to Phase 4.5 (post-Phase 5)**:
+**Shipped in Phase 4.5 (post-Phase 5 catch-up)**:
 
-- **4g: Opus encoding** for the `EvidenceClip` and `Full+AudioClip`
-  projections. The projections currently emit a documented
-  `audio_clip` placeholder (`{"codec":"opus","bytes":""}`); the
-  wire shape is stable, vendoring libopus + filling the bytes is a
-  pure addition. Integrators who don't need clip projections are
-  unaffected.
-- **4h: RFC 3161 TSA hook**. The `tsa_endpoint` config field
-  parses but `tsa_timestamp` isn't constructed yet. The
-  `SENTLOG_ERR_TSA` status is reserved. The default `tsa_required:
-  false` preserves inert-by-default, so the absence is silent;
-  setting `tsa_required: true` would error on the next dispatch
-  rather than silently mis-attest (a future chunk needs to wire
-  this).
+- **4g: Opus encoding** — shipped as two sub-chunks:
+  - **4g-i** (C ABI): `sentlog_set_audio_encoder` callback +
+    encoder-callback pattern + dispatch wiring; pre-snapshot of
+    audio in `evaluate()` so `Pipeline::run`'s destructive ring
+    read doesn't drain the buffer before the encoder sees it; 6
+    gtest cases (happy path, no-encoder fallback, single encode
+    across multiple AudioClip forwarders, non-clip projections
+    skip encoder, codec-name validation, encoder-failure
+    fallback). No libopus vendored — the C++ core stays
+    codec-free.
+  - **4g-ii** (platform encoders): iOS `OpusAudioEncoder.install()`
+    backed by AVAudioConverter + AudioToolbox's built-in
+    `kAudioFormatOpus` (no extra dep). Android `OpusAudioEncoder
+    .install()` backed by MediaCodec `audio/opus` (API 29+;
+    throws on older devices with a clear message). Both helpers
+    + Kotlin/Swift `setAudioEncoder()` public wrappers ship.
+- **4h: RFC 3161 TSA hook** — shipped as two sub-chunks:
+  - **4h-i** (C ABI): `sentlog_set_tsa_provider` callback +
+    dispatch wiring (engaged only when `tsa_endpoint` set + provider
+    registered); `tsa_required=true + failure` drops envelope +
+    `ForwarderOutcome=dropped` telemetry, otherwise
+    `TsaRequestFailed` + envelope ships unsigned-by-TSA. 5 gtest
+    cases.
+  - **4h-ii** (platform providers): iOS `RfcTsaProvider.install()`
+    + Android `RfcTsaProvider.install()`, both stdlib-only —
+    SHA-256 via CryptoKit / MessageDigest, inline RFC 3161
+    TimeStampReq DER encoding (~51 bytes), HTTPS POST via
+    URLSession / HttpURLConnection. HTTPS-only, 16 KiB response
+    cap (matches state.cpp).
 
 The remaining Phase 4 deliverables (envelope construction +
 projections + signing + sink fanout + LocalQueue + drainQueue +
@@ -220,26 +236,44 @@ inflation.
   `RECORD_AUDIO` + `CAMERA` with `required=false`; integrator
   checklist at [`docs/permissions.md`](permissions.md).
 
-**Deferred to Phase 5.5 (post-Phase 5)**:
+**Shipped in Phase 5.5 (post-Phase 5 catch-up — scaffolding pass)**:
 
-- **5b: Android MediaPipe Face Mesh + CameraX capture**. The C
-  ABI is in place; what's left is platform-side wiring — vendor
-  the MediaPipe tasks-vision AAR, drive a 10-15 Hz camera frame
-  loop, push derived values via `sentlog_push_face_frame`. Needs
-  the affect-head MLP that maps 468 landmarks → `(valence,
-  arousal, FAU)`, which in turn needs training data and a
-  pretrained checkpoint.
-- **5c: iOS Vision face landmark capture**. Same shape: Vision
-  framework face-landmark detection at 10-15 Hz, derived push
-  through the same C ABI. Affect head same as 5b.
-- **5e: Device-integrity hooks** (Play Integrity / AppAttest /
-  DeviceCheck). Surfaces as `evidence_grade: "DeviceAttested"`
-  on the envelope when the platform attestation succeeds; same
-  inert-by-default pattern as the rest of the SDK.
+- **5b: Android `pushFaceFrame` + `FaceAffectHead` interface +
+  `PlaceholderFaceAffectHead`**. JNI `nativePushFaceFrame` + Kotlin
+  `Sentlog.pushFaceFrame` public API + the interface contract for
+  integrators wiring MediaPipe Face Mesh themselves. The placeholder
+  affect head returns neutral `(valence=0, arousal=0.5)` until the
+  trained MLP lands. `docs/integration/face-affect.md` walks the
+  full pipeline.
+- **5c: iOS `pushFaceFrame` + `FaceAffectHead` protocol +
+  `PlaceholderFaceAffectHead`**. Same shape as 5b. Vision
+  framework integration is integrator-supplied; the SDK exposes
+  the boundary only.
+- **5e: Device-attestation push API + `evidence_grade` promotion**.
+  C ABI `sentlog_set_device_attestation` + Kotlin/Swift
+  `setDeviceAttestation` + envelope assembly that attaches
+  `credentialSubject.device_attestation` + promotes
+  `DeviceUnattested → DeviceAttested` (never demotes
+  `EnclaveSigned`). 4 gtest cases including the combined
+  hw-sign + attestation integration. **5e-ii** ships bundled
+  `PlayIntegrityAttester` (Kotlin; Play Services declared
+  `compileOnly` so apps without device attestation don't pull
+  the dep) + `AppAttestAttester` (Swift; DeviceCheck is built
+  into iOS) helpers that wrap the boilerplate.
 
-The deferred items don't change the C ABI surface — they wire
-real sensor data into the existing `sentlog_push_face_frame` path
-and surface attestation status as an existing enum value.
+**Still deferred (corpus-gated, not code-gated)**:
+
+- **Real face-affect-head MLP** (used by both 5b and 5c). Needs
+  the labelled face-affect corpus the rollout plan gates to
+  months 7–12. Until then the placeholder ships honestly:
+  `model_versions.affect = "placeholder-derived"` so downstream
+  consumers can detect the stub.
+- **MediaPipe / Vision orchestrators**. The SDK exposes the
+  push boundary; integrators wire camera lifecycle + landmark
+  detection themselves. A reference orchestrator could ship
+  later but the integrator-side variance (preview surfaces,
+  CameraX/AVFoundation lifecycle, rate budgets) makes a
+  one-size-fits-all wrapper less valuable than the docs.
 
 ### Phase 6 — React Native + Capacitor bridges (Weeks 11–12)
 
