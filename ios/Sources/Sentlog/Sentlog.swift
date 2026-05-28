@@ -474,6 +474,63 @@ public enum Sentlog {
         try NativeBridge.mustSucceed(s, "pushFaceFrame")
     }
 
+    /// Phase 4g: register (or clear, with `cb=nil`) the audio encoder
+    /// that the SDK calls when an AudioClip-bearing forwarder needs
+    /// to emit the captured PCM. The closure type matches the C ABI:
+    ///   (pcm: UnsafePointer<Float>, n: size_t, sr: Int32,
+    ///    out: UnsafeMutablePointer<UInt8>, outLen: UnsafeMutablePointer<size_t>,
+    ///    userdata: UnsafeMutableRawPointer?) -> Int32
+    ///
+    /// `codecName` is recorded into the envelope's audio_clip.codec
+    /// field; required when `cb` is non-nil.
+    ///
+    /// Most integrators don't call this directly — `OpusAudioEncoder.install()`
+    /// is the convenience entry point (uses AudioToolbox's built-in
+    /// Opus encoder).
+    public static func setAudioEncoder(
+        _ cb: sentlog_audio_encoder_cb_t?,
+        codecName: String? = nil
+    ) throws {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let h = try requireHandleLocked()
+        let status: sentlog_status_t
+        if let cb {
+            guard let name = codecName, !name.isEmpty else {
+                throw SentlogError(status: SENTLOG_ERR_INVALID_CONFIG,
+                                   context: "setAudioEncoder: codecName required when cb is non-nil")
+            }
+            status = name.withCString { c in
+                sentlog_set_audio_encoder(h, cb, nil, c)
+            }
+        } else {
+            status = sentlog_set_audio_encoder(h, nil, nil, nil)
+        }
+        try NativeBridge.mustSucceed(status, "setAudioEncoder")
+    }
+
+    /// Phase 4h: register (or clear, with `cb=nil`) the RFC 3161
+    /// TSA provider. The closure type matches the C ABI:
+    ///   (toHash: UnsafePointer<UInt8>, toHashLen: size_t,
+    ///    tsaUrl: UnsafePointer<CChar>, timeoutMs: Int32,
+    ///    tokenOut: UnsafeMutablePointer<UInt8>,
+    ///    tokenOutLen: UnsafeMutablePointer<size_t>,
+    ///    userdata: UnsafeMutableRawPointer?) -> Int32
+    ///
+    /// Engaged only when `SentlogConfig.tsaEndpoint` is set.
+    ///
+    /// Most integrators don't call this directly — `RfcTsaProvider.install()`
+    /// is the convenience entry point.
+    public static func setTsaProvider(
+        _ cb: sentlog_tsa_provider_cb_t?
+    ) throws {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let h = try requireHandleLocked()
+        let status = sentlog_set_tsa_provider(h, cb, nil)
+        try NativeBridge.mustSucceed(status, "setTsaProvider")
+    }
+
     /// Phase 5e: push the most recent device-attestation token (from
     /// App Attest / DeviceCheck). Recorded as
     /// `credentialSubject.device_attestation` on every dispatched
