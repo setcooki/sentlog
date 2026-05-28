@@ -31,7 +31,9 @@ public enum RfcTsaProvider {
             guard let toHash, let urlC, let out, let outLen else { return -1 }
             let buf  = UnsafeBufferPointer(start: toHash, count: toHashLen)
             let url  = String(cString: urlC)
-            let resp = blockingRequest(
+            // Fully-qualified static call — required by Swift's
+            // @convention(c) closure rule (no implicit self capture).
+            let resp = RfcTsaProvider.blockingRequest(
                 toHash: Data(buffer: buf),
                 url: url,
                 timeoutMs: Int(timeoutMs))

@@ -38,7 +38,9 @@ public enum OpusAudioEncoder {
             let pcmBuf = UnsafeBufferPointer(start: pcm, count: n)
             let encoded: Data
             do {
-                encoded = try encode16kMonoFloatToOpus(samples: pcmBuf)
+                // Fully-qualified static call — required by Swift's
+                // @convention(c) closure rule (no implicit self capture).
+                encoded = try OpusAudioEncoder.encode16kMonoFloatToOpus(samples: pcmBuf)
             } catch {
                 return -3
             }
