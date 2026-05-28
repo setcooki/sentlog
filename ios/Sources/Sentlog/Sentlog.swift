@@ -442,6 +442,38 @@ public enum Sentlog {
     /// CryptoKit / hardware-backed Secure Enclave (Phase 7 swaps
     /// in `ecdsa-jcs-2019` for hardware). Throws if the key is the
     /// wrong length.
+    /// Phase 5c: push one face-affect frame derived by the platform-
+    /// side affect head (the integrator's iOS Vision face-landmark
+    /// pipeline + affect-head MLP). Raw landmarks never reach the SDK
+    /// — only the (valence, arousal, FAU) tuple crosses the boundary,
+    /// per spec §5.3.
+    ///
+    /// `valence` is [-1, 1]; `arousal` is [0, 1]; `dominantFauCsv` is
+    /// a comma-separated list of activated FAU codes (e.g. "AU6,AU12"),
+    /// or nil when no FAU dominated this frame.
+    ///
+    /// Must be called between `startCapture` and `evaluate`; lifecycle
+    /// violation throws `SentlogError(SENTLOG_ERR_INVALID_STATE)`.
+    public static func pushFaceFrame(
+        timestampNs: Int64,
+        valence: Float,
+        arousal: Float,
+        dominantFauCsv: String? = nil
+    ) throws {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let h = try requireHandleLocked()
+        let s: sentlog_status_t
+        if let csv = dominantFauCsv {
+            s = csv.withCString { c in
+                sentlog_push_face_frame(h, timestampNs, valence, arousal, c)
+            }
+        } else {
+            s = sentlog_push_face_frame(h, timestampNs, valence, arousal, nil)
+        }
+        try NativeBridge.mustSucceed(s, "pushFaceFrame")
+    }
+
     public static func setSigningKey(_ secretKey: Data,
                                      verificationMethod: String) throws {
         stateLock.lock()
