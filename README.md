@@ -7,6 +7,15 @@ and facial-affect signals), produces a multi-dimensional presence
 assessment, and emits the result as a signed, W3C-Verifiable-Credentials
 envelope. Runs entirely on-device. Inert by default. MIT.
 
+> ⚠️ **Status: pre-v1.0 — NOT production ready.** The architecture
+> is in place and CI is green, but the SDK has not been through its
+> ≥72 h on-device soak, has not been cut as v1.0, and the
+> face-affect MLP is a placeholder pending the labelled corpus
+> (gated to months 7–12 per `docs/rollout-plan.md`). The public API
+> surface and envelope wire format may shift before v1.0; the
+> deprecation cycle in [`docs/deprecation-policy.md`](docs/deprecation-policy.md)
+> only kicks in from v1.0 onward. Use on `main` at your own risk.
+
 ## What it is
 
 Sentlog is a mobile SDK for iOS and Android with first-class bridges

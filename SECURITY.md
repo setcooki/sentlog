@@ -4,6 +4,13 @@ Sentlog produces signed evidence about human presence and intent. The
 SDK ships claims that downstream systems trust. We take security
 reports seriously and want to make it easy for researchers to reach us.
 
+> ⚠️ **Status: pre-v1.0.** The SDK has not been cut as v1.0 and has
+> not been through its ≥72 h on-device soak. Production deployments
+> are **not recommended**. Security findings against the current
+> `main` are welcome and within scope — file them per the process
+> below; they will be addressed but tracked as pre-release fixes
+> rather than CVE-worthy advisories until v1.0 is cut.
+
 ## Reporting a vulnerability
 
 **Do not open a public GitHub issue for security reports.**

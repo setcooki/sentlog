@@ -162,10 +162,17 @@ public class SentlogModule: RCTEventEmitter {
                                            attestationType: String?,
                                            resolver resolve: @escaping RCTPromiseResolveBlock,
                                            rejecter reject: @escaping RCTPromiseRejectBlock) {
-        do {
-            let bytes: Data? = tokenBase64.flatMap {
-                Data(base64Encoded: $0)
+        let bytes: Data?
+        if let token = tokenBase64 {
+            guard let decoded = Data(base64Encoded: token) else {
+                reject("setDeviceAttestation", "tokenBase64 not valid base64", nil)
+                return
             }
+            bytes = decoded
+        } else {
+            bytes = nil
+        }
+        do {
             try Sentlog.setDeviceAttestation(
                 bytes, attestationType: attestationType)
             resolve(nil)

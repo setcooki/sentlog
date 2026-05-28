@@ -166,10 +166,15 @@ class SentlogModule(private val reactContext: ReactApplicationContext)
         attestationType: String?,
         promise: Promise,
     ) {
-        try {
-            val bytes = tokenBase64?.let {
-                android.util.Base64.decode(it, android.util.Base64.DEFAULT)
+        val bytes = if (tokenBase64 != null) {
+            try {
+                android.util.Base64.decode(tokenBase64, android.util.Base64.DEFAULT)
+            } catch (e: IllegalArgumentException) {
+                return promise.reject("setDeviceAttestation",
+                    "tokenBase64 not valid base64", e)
             }
+        } else null
+        try {
             Sentlog.setDeviceAttestation(bytes, attestationType)
             promise.resolve(null)
         } catch (t: Throwable) {

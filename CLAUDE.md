@@ -21,16 +21,43 @@ read the rollout plan.
 
 ## Status
 
-**Pre-Phase-0.** The repository currently contains only the
-`docs/` tree. No source code, build system, models, or sample apps
-exist yet. The first real work is Phase 0 (foundations) as defined in
-the rollout plan — ratifying decisions as ADRs in `docs/adr/`,
-scaffolding the repo structure, drafting the C ABI header, verifying
-the AASIST-L pretrained-weight licence.
+**Pre-v1.0 — NOT production ready.** Phases 0 through 7.5
+(architecture pass) have shipped. The shared C++ core, both
+platform bindings (iOS + Android), both JS bridges (RN +
+Capacitor), the OTA path, the hardware-signing pluggable
+architecture (with SDK-bundled `SecureEnclaveSigner` +
+`KeyStoreSigner` helpers), the device-attestation push API (with
+SDK-bundled `AppAttestAttester` + `PlayIntegrityAttester`
+helpers), the audio-encoder + TSA-provider callback patterns
+(with SDK-bundled `OpusAudioEncoder` + `RfcTsaProvider` native
+helpers), the face-affect scaffolding, telemetry, integration
+docs, deprecation policy, and three Python tools (evidence-verifier,
+reference-consumer, benchmark-harness) all exist and pass CI.
 
-Do not assume any code exists. Do not assume any build commands work.
-When asked to make something, scaffold from scratch following the
-layout in `docs/technical-specification.md §2`.
+Still genuinely open before v1.0:
+  - **≥72 h soak runs** across both integrator apps (real-device,
+    not CI-loop work)
+  - **v1.0 cut + release notes + upgrade guide**
+  - **Real face-affect MLP** (placeholder ships; corpus-gated to
+    months 7–12 per the rollout plan, with
+    `model_versions.affect = "placeholder-derived"` so consumers
+    can detect the stub)
+  - **Phase 8 work**: per-attack-family benchmarks (50k+ corpus),
+    multi-language, public docs site, conformance suite, lip-sync
+    anti-spoof
+
+Until v1.0 is cut, the public API surface and envelope wire format
+may shift. Integrators tracking `main` accept that risk; the
+deprecation cycle in `docs/deprecation-policy.md` only kicks in
+from v1.0 onward.
+
+When asked to make something: real code exists, real build commands
+work. Don't scaffold from scratch — `git log` + the rollout plan +
+the spec are the up-to-date sources. CI runs ~12 jobs on every push
+(shared ASan+UBSan, shared strict warnings, iOS SwiftPM, Android
+AAR, RN + Capacitor lint+build, types parity, evidence-verifier,
+reference-consumer, benchmark-harness selftest, docs presence). New
+code is expected to keep CI green.
 
 ## Planned repository structure
 

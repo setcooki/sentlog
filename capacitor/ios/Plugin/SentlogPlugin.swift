@@ -150,10 +150,17 @@ public class SentlogPlugin: CAPPlugin {
     @objc public func setDeviceAttestation(_ call: CAPPluginCall) {
         let tokenBase64 = call.getString("tokenBase64")
         let type        = call.getString("attestationType")
-        do {
-            let bytes: Data? = tokenBase64.flatMap {
-                Data(base64Encoded: $0)
+        let bytes: Data?
+        if let token = tokenBase64 {
+            guard let decoded = Data(base64Encoded: token) else {
+                call.reject("tokenBase64 not valid base64")
+                return
             }
+            bytes = decoded
+        } else {
+            bytes = nil
+        }
+        do {
             try Sentlog.setDeviceAttestation(bytes, attestationType: type)
             call.resolve()
         } catch {

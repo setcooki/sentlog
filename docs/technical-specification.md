@@ -6,6 +6,13 @@
 **Audience:** Engineers integrating, contributing to, or auditing the
 SDK. Verifier authors. Security researchers.
 
+> ⚠️ **Pre-v1.0 — NOT production ready.** This spec describes the
+> SDK as it stands on `main`. The architecture pass through Phase
+> 7.5 is complete and CI is green, but v1.0 has not been cut and the
+> ≥72 h on-device soak has not been run. Surfaces named here may
+> still change before v1.0; the [deprecation
+> policy](./deprecation-policy.md) only kicks in from v1.0 onward.
+
 Companion documents:
 - [Whitepaper](./whitepaper.md) — vision, principles, positioning, multi-modal rationale, data strategy.
 - [Rollout Plan](./rollout-plan.md) — phases, benchmark gate, testing, risks.

@@ -5,6 +5,16 @@ Your app captures voice (and optionally motion + face), the SDK
 returns a multi-dimensional assessment + a W3C VC 2.0 envelope; you
 decide what to do with it.
 
+> ⚠️ **Pre-v1.0 — NOT production ready.** The architecture pass is
+> complete and CI is green, but the SDK has not been through its
+> ≥72 h on-device soak and has not been cut as v1.0. The face-affect
+> head is a placeholder (`model_versions.affect = "placeholder-derived"`
+> until the labelled corpus lands in months 7–12). The public API
+> surface and envelope wire format may shift; the
+> [deprecation policy](../deprecation-policy.md) only applies from
+> v1.0 onward. Build against the SDK now to inform integration design
+> + give us feedback; don't ship it to production users yet.
+
 This directory is the integrator-facing documentation. The
 [whitepaper](../whitepaper.md) covers *why*; the [technical
 specification](../technical-specification.md) covers *what*; this

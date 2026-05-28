@@ -193,10 +193,14 @@ class SentlogPlugin : Plugin() {
     fun setDeviceAttestation(call: PluginCall) {
         val tokenBase64 = call.getString("tokenBase64")
         val type        = call.getString("attestationType")
-        try {
-            val bytes = tokenBase64?.let {
-                android.util.Base64.decode(it, android.util.Base64.DEFAULT)
+        val bytes = if (tokenBase64 != null) {
+            try {
+                android.util.Base64.decode(tokenBase64, android.util.Base64.DEFAULT)
+            } catch (e: IllegalArgumentException) {
+                return call.reject("tokenBase64 not valid base64", e)
             }
+        } else null
+        try {
             Sentlog.setDeviceAttestation(bytes, type)
             call.resolve()
         } catch (t: Throwable) {
