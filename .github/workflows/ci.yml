@@ -181,6 +181,24 @@ jobs:
         working-directory: tools/evidence-verifier
         run: python3 selftest.py
 
+  reference-consumer:
+    name: tools (reference-consumer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Stdlib-only — proof verification with `cryptography` is
+      # exercised by the verifier's self-test, not this one.
+
+      - name: Self-test (server + endpoints + HMAC + strict-mode)
+        working-directory: tools/reference-consumer
+        run: python3 selftest.py
+
   types-parity:
     name: tools (types parity)
     runs-on: ubuntu-latest
