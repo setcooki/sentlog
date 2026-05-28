@@ -122,6 +122,23 @@ internal object NativeBridge {
         cryptosuite: String?,
         verificationMethod: String?,
     ): Int
+
+    /** Phase 4g-ii: install (or clear, when [encoder] == null) the
+     *  per-handle audio encoder invoked once per evaluate when an
+     *  AudioClip-bearing forwarder is configured. */
+    @JvmStatic external fun nativeSetAudioEncoder(
+        handle: Long,
+        encoder: AudioEncoderCallback?,
+        codecName: String?,
+    ): Int
+
+    /** Phase 4h-ii: install (or clear, when [provider] == null) the
+     *  per-handle RFC 3161 TSA provider invoked after envelope
+     *  signing when SentlogConfig.tsaEndpoint is set. */
+    @JvmStatic external fun nativeSetTsaProvider(
+        handle: Long,
+        provider: TsaProviderCallback?,
+    ): Int
 }
 
 /** Invoked by JNI on the SDK's I/O thread. */
@@ -165,4 +182,24 @@ internal abstract class EnvelopeDispatcher {
  *  on signing failure. Long-lived (matching EnvelopeDispatcher). */
 internal abstract class HardwareSignerCallback {
     abstract fun onSign(messageBytes: ByteArray): ByteArray?
+}
+
+/** Phase 4g-ii: invoked by JNI once per evaluate when an AudioClip-
+ *  bearing forwarder needs to emit the captured PCM as encoded
+ *  bytes. Receives 16 kHz mono float PCM + sample rate; returns the
+ *  encoded payload (Opus typically) or null on encoder failure. */
+internal abstract class AudioEncoderCallback {
+    abstract fun onEncode(pcmSamples: FloatArray, sampleRateHz: Int): ByteArray?
+}
+
+/** Phase 4h-ii: invoked by JNI after envelope signing when
+ *  SentlogConfig.tsaEndpoint is set. Receives the proof.proofValue
+ *  bytes to hash + the TSA URL + a timeout; returns the DER-encoded
+ *  TimeStampResp bytes from the TSA, or null on failure. */
+internal abstract class TsaProviderCallback {
+    abstract fun onTsaRequest(
+        toHashBytes: ByteArray,
+        tsaEndpointUrl: String,
+        timeoutMs: Int,
+    ): ByteArray?
 }

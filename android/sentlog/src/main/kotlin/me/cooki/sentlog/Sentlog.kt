@@ -9,8 +9,10 @@ import me.cooki.sentlog.internal.AasistLivenessRunner
 import me.cooki.sentlog.internal.AudioCapture
 import me.cooki.sentlog.internal.AudioRouteDetector
 import me.cooki.sentlog.internal.DrainCallback
+import me.cooki.sentlog.internal.AudioEncoderCallback
 import me.cooki.sentlog.internal.EnvelopeDispatcher
 import me.cooki.sentlog.internal.HardwareSignerCallback
+import me.cooki.sentlog.internal.TsaProviderCallback
 import me.cooki.sentlog.internal.MotionCapture
 import me.cooki.sentlog.internal.NativeBridge
 import me.cooki.sentlog.internal.ResultCallback
@@ -385,6 +387,78 @@ public object Sentlog {
             throw IllegalStateException(
                 "pushFaceFrame failed (status=$s) — call between " +
                 "startCapture and evaluate")
+        }
+    }
+
+    /**
+     * Phase 4g-ii: register (or clear, with `encoder = null`) the
+     * audio encoder invoked once per evaluate when an AudioClip-
+     * bearing forwarder is configured. The encoder receives 16 kHz
+     * mono float PCM + sample rate; returns the encoded bytes
+     * (Opus typically) or null on failure.
+     *
+     * Most integrators don't call this directly — `OpusAudioEncoder`
+     * (lands in 4g-ii Android) wraps MediaCodec with the right
+     * format setup.
+     */
+    @Synchronized
+    public fun setAudioEncoder(
+        encoder: ((pcmSamples: FloatArray, sampleRateHz: Int) -> ByteArray?)?,
+        codecName: String? = null,
+    ) {
+        val h = requireHandle()
+        if (encoder == null) {
+            val s = NativeBridge.nativeSetAudioEncoder(h, null, null)
+            if (s != NativeBridge.STATUS_OK) {
+                throw IllegalStateException("setAudioEncoder failed (status=$s)")
+            }
+            return
+        }
+        require(!codecName.isNullOrEmpty()) {
+            "setAudioEncoder: codecName required when encoder is non-null"
+        }
+        val adapter = object : AudioEncoderCallback() {
+            override fun onEncode(pcmSamples: FloatArray, sampleRateHz: Int) =
+                encoder(pcmSamples, sampleRateHz)
+        }
+        val s = NativeBridge.nativeSetAudioEncoder(h, adapter, codecName)
+        if (s != NativeBridge.STATUS_OK) {
+            throw IllegalStateException("setAudioEncoder failed (status=$s)")
+        }
+    }
+
+    /**
+     * Phase 4h-ii: register (or clear, with `provider = null`) the
+     * RFC 3161 TSA provider invoked after envelope signing when
+     * `SentlogConfig.tsaEndpoint` is set. The provider receives the
+     * proof.proofValue bytes to hash, the TSA URL, and a timeout;
+     * returns the DER TimeStampResp bytes or null on failure.
+     *
+     * Most integrators don't call this directly — `RfcTsaProvider`
+     * (lands in 4h-ii Android) handles the SHA-256 + ASN.1
+     * TimeStampReq + HTTPS POST.
+     */
+    @Synchronized
+    public fun setTsaProvider(
+        provider: ((
+            toHashBytes: ByteArray,
+            tsaEndpointUrl: String,
+            timeoutMs: Int,
+        ) -> ByteArray?)?,
+    ) {
+        val h = requireHandle()
+        val adapter = provider?.let {
+            object : TsaProviderCallback() {
+                override fun onTsaRequest(
+                    toHashBytes: ByteArray,
+                    tsaEndpointUrl: String,
+                    timeoutMs: Int,
+                ): ByteArray? = it(toHashBytes, tsaEndpointUrl, timeoutMs)
+            }
+        }
+        val s = NativeBridge.nativeSetTsaProvider(h, adapter)
+        if (s != NativeBridge.STATUS_OK) {
+            throw IllegalStateException("setTsaProvider failed (status=$s)")
         }
     }
 

@@ -46,10 +46,12 @@ struct GlobalCallback {
 // JNI globals we allocated alongside the C handle so they can be
 // released atomically on destroy.
 struct JniHandle {
-    sentlog_handle_t* native;       // owned
-    GlobalCallback*   telemetry;    // owned, may be null
-    GlobalCallback*   dispatcher;   // owned, may be null
-    GlobalCallback*   hw_signer;    // owned, may be null (Phase 7c)
+    sentlog_handle_t* native;        // owned
+    GlobalCallback*   telemetry;     // owned, may be null
+    GlobalCallback*   dispatcher;    // owned, may be null
+    GlobalCallback*   hw_signer;     // owned, may be null (Phase 7c)
+    GlobalCallback*   audio_encoder; // owned, may be null (Phase 4g-ii)
+    GlobalCallback*   tsa_provider;  // owned, may be null (Phase 4h-ii)
 };
 
 // Attach the current thread to the JVM if needed and run the supplied
@@ -205,6 +207,100 @@ int on_hw_sign(const uint8_t* message_bytes,
     return rc;
 }
 
+// Phase 4g-ii: audio-encoder trampoline. Kotlin side receives a
+// FloatArray + sample rate and returns the encoded ByteArray (null
+// on failure). We copy into the caller's buffer (sized 256 KiB in
+// state.cpp).
+int on_audio_encode(const float* pcm_samples_f32,
+                    size_t       num_samples,
+                    int          sample_rate_hz,
+                    uint8_t*     encoded_out_buf,
+                    size_t*      encoded_out_len_inout,
+                    void*        userdata) {
+    auto* cb = static_cast<GlobalCallback*>(userdata);
+    int rc = -1;
+    with_jni_env([&](JNIEnv* env) {
+        jfloatArray pcm_j = env->NewFloatArray(static_cast<jsize>(num_samples));
+        if (pcm_j == nullptr) return;
+        if (num_samples > 0) {
+            env->SetFloatArrayRegion(pcm_j, 0,
+                                     static_cast<jsize>(num_samples),
+                                     pcm_samples_f32);
+        }
+        auto enc_j = static_cast<jbyteArray>(
+            env->CallObjectMethod(cb->ref, cb->method, pcm_j,
+                                   static_cast<jint>(sample_rate_hz)));
+        env->DeleteLocalRef(pcm_j);
+        if (env->ExceptionCheck()) {
+            LOGE("audio encoder threw; falling back to placeholder");
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+            return;
+        }
+        if (enc_j == nullptr) return;
+        const jsize len = env->GetArrayLength(enc_j);
+        if (len <= 0 || static_cast<size_t>(len) > *encoded_out_len_inout) {
+            env->DeleteLocalRef(enc_j);
+            return;
+        }
+        env->GetByteArrayRegion(enc_j, 0, len,
+                                reinterpret_cast<jbyte*>(encoded_out_buf));
+        *encoded_out_len_inout = static_cast<size_t>(len);
+        env->DeleteLocalRef(enc_j);
+        rc = 0;
+    });
+    return rc;
+}
+
+// Phase 4h-ii: TSA-provider trampoline. Kotlin side receives the
+// bytes-to-hash + tsa URL + timeout, returns the DER TimeStampResp
+// (null on failure).
+int on_tsa_request(const uint8_t* to_hash_bytes,
+                   size_t         to_hash_len,
+                   const char*    tsa_endpoint_url,
+                   int            timeout_ms,
+                   uint8_t*       token_out_buf,
+                   size_t*        token_out_len_inout,
+                   void*          userdata) {
+    auto* cb = static_cast<GlobalCallback*>(userdata);
+    int rc = -1;
+    with_jni_env([&](JNIEnv* env) {
+        jbyteArray hash_j = env->NewByteArray(static_cast<jsize>(to_hash_len));
+        if (hash_j == nullptr) return;
+        if (to_hash_len > 0) {
+            env->SetByteArrayRegion(
+                hash_j, 0, static_cast<jsize>(to_hash_len),
+                reinterpret_cast<const jbyte*>(to_hash_bytes));
+        }
+        jstring url_j = env->NewStringUTF(
+            tsa_endpoint_url ? tsa_endpoint_url : "");
+        auto tok_j = static_cast<jbyteArray>(
+            env->CallObjectMethod(cb->ref, cb->method,
+                                   hash_j, url_j,
+                                   static_cast<jint>(timeout_ms)));
+        env->DeleteLocalRef(hash_j);
+        env->DeleteLocalRef(url_j);
+        if (env->ExceptionCheck()) {
+            LOGE("TSA provider threw; envelope ships without timestamp");
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+            return;
+        }
+        if (tok_j == nullptr) return;
+        const jsize len = env->GetArrayLength(tok_j);
+        if (len <= 0 || static_cast<size_t>(len) > *token_out_len_inout) {
+            env->DeleteLocalRef(tok_j);
+            return;
+        }
+        env->GetByteArrayRegion(tok_j, 0, len,
+                                reinterpret_cast<jbyte*>(token_out_buf));
+        *token_out_len_inout = static_cast<size_t>(len);
+        env->DeleteLocalRef(tok_j);
+        rc = 0;
+    });
+    return rc;
+}
+
 void on_envelope_dispatch(const char* forwarder_name,
                           const char* sink_kind,
                           const char* sink_json,
@@ -297,7 +393,8 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeCreate(
         return 0;
     }
 
-    auto* j = new JniHandle{native, telemetry_userdata, nullptr, nullptr};
+    auto* j = new JniHandle{native, telemetry_userdata,
+                            nullptr, nullptr, nullptr, nullptr};
     return jlong_from_jni(j);
 }
 
@@ -318,6 +415,14 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeDestroy(
     if (j->hw_signer != nullptr) {
         env->DeleteGlobalRef(j->hw_signer->ref);
         delete j->hw_signer;
+    }
+    if (j->audio_encoder != nullptr) {
+        env->DeleteGlobalRef(j->audio_encoder->ref);
+        delete j->audio_encoder;
+    }
+    if (j->tsa_provider != nullptr) {
+        env->DeleteGlobalRef(j->tsa_provider->ref);
+        delete j->tsa_provider;
     }
     delete j;
 }
@@ -612,6 +717,89 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeSetEnvelopeDispatcher(
         delete j->dispatcher;
     }
     j->dispatcher = userdata;
+    return rc;
+}
+
+JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativeSetAudioEncoder(
+    JNIEnv* env, jclass /*clazz*/, jlong handle,
+    jobject encoder_obj, jstring codec_name_j) {
+
+    JniHandle* j = jni_from_jlong(handle);
+    if (j == nullptr) return SENTLOG_ERR_INVALID_STATE;
+
+    if (encoder_obj == nullptr) {
+        const jint rc = static_cast<jint>(sentlog_set_audio_encoder(
+            j->native, nullptr, nullptr, nullptr));
+        if (j->audio_encoder != nullptr) {
+            env->DeleteGlobalRef(j->audio_encoder->ref);
+            delete j->audio_encoder;
+            j->audio_encoder = nullptr;
+        }
+        return rc;
+    }
+    if (codec_name_j == nullptr) return SENTLOG_ERR_INVALID_CONFIG;
+
+    const jclass cb_cls = env->GetObjectClass(encoder_obj);
+    const jmethodID m = env->GetMethodID(cb_cls, "onEncode", "([FI)[B");
+    env->DeleteLocalRef(cb_cls);
+    if (m == nullptr) return SENTLOG_ERR_INTERNAL;
+
+    const char* codec = env->GetStringUTFChars(codec_name_j, nullptr);
+    if (codec == nullptr) return SENTLOG_ERR_INTERNAL;
+    auto* userdata = new GlobalCallback{env->NewGlobalRef(encoder_obj), m};
+    const jint rc = static_cast<jint>(sentlog_set_audio_encoder(
+        j->native, &on_audio_encode, userdata, codec));
+    env->ReleaseStringUTFChars(codec_name_j, codec);
+    if (rc != SENTLOG_OK) {
+        env->DeleteGlobalRef(userdata->ref);
+        delete userdata;
+        return rc;
+    }
+    if (j->audio_encoder != nullptr) {
+        env->DeleteGlobalRef(j->audio_encoder->ref);
+        delete j->audio_encoder;
+    }
+    j->audio_encoder = userdata;
+    return rc;
+}
+
+JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativeSetTsaProvider(
+    JNIEnv* env, jclass /*clazz*/, jlong handle, jobject provider_obj) {
+
+    JniHandle* j = jni_from_jlong(handle);
+    if (j == nullptr) return SENTLOG_ERR_INVALID_STATE;
+
+    if (provider_obj == nullptr) {
+        const jint rc = static_cast<jint>(sentlog_set_tsa_provider(
+            j->native, nullptr, nullptr));
+        if (j->tsa_provider != nullptr) {
+            env->DeleteGlobalRef(j->tsa_provider->ref);
+            delete j->tsa_provider;
+            j->tsa_provider = nullptr;
+        }
+        return rc;
+    }
+    const jclass cb_cls = env->GetObjectClass(provider_obj);
+    const jmethodID m = env->GetMethodID(
+        cb_cls, "onTsaRequest", "([BLjava/lang/String;I)[B");
+    env->DeleteLocalRef(cb_cls);
+    if (m == nullptr) return SENTLOG_ERR_INTERNAL;
+
+    auto* userdata = new GlobalCallback{env->NewGlobalRef(provider_obj), m};
+    const jint rc = static_cast<jint>(sentlog_set_tsa_provider(
+        j->native, &on_tsa_request, userdata));
+    if (rc != SENTLOG_OK) {
+        env->DeleteGlobalRef(userdata->ref);
+        delete userdata;
+        return rc;
+    }
+    if (j->tsa_provider != nullptr) {
+        env->DeleteGlobalRef(j->tsa_provider->ref);
+        delete j->tsa_provider;
+    }
+    j->tsa_provider = userdata;
     return rc;
 }
 
