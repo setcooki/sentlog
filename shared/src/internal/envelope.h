@@ -102,13 +102,24 @@ struct EncodedAudioClip {
     std::string bytes_b64;   // standard base64, with padding
 };
 
+/// `device_attestation` carries the Play Integrity / App Attest
+/// token the integrator pushed via sentlog_set_device_attestation
+/// (Phase 5e). When present, the envelope's evidence_grade is
+/// promoted to "DeviceAttested" — but never demoted from a higher
+/// grade like "EnclaveSigned".
+struct DeviceAttestation {
+    std::string type;        // e.g. "play_integrity", "app_attest"
+    std::string token_b64;   // standard base64, with padding
+};
+
 /// Returns the serialised envelope. No "proof" block — 4b adds it.
 std::string build_envelope_unsigned(
     const Config& config,
     const std::string& result_json,
     const std::string& valid_from_iso8601_utc,
     const ProjectionSpec& spec = ProjectionSpec{},
-    const EncodedAudioClip* audio_clip = nullptr);
+    const EncodedAudioClip* audio_clip = nullptr,
+    const DeviceAttestation* device_attestation = nullptr);
 
 /// ISO-8601 UTC timestamp helper. Format:
 /// "2026-05-25T12:34:56.789Z". Suitable for `validFrom` /

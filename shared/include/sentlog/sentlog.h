@@ -565,6 +565,31 @@ sentlog_status_t sentlog_set_tsa_provider(
     sentlog_tsa_provider_cb_t cb,
     void*                     userdata);
 
+/* Phase 5e: Push the most recent device-attestation token the
+ * integrator obtained via Play Integrity (Android) / App Attest
+ * (iOS). The SDK records the token + type as
+ * credentialSubject.device_attestation on every dispatched envelope
+ * and promotes evidence_grade to "DeviceAttested" (unless already
+ * "EnclaveSigned", which is higher).
+ *
+ *   token_bytes / token_len   The opaque attestation token. The SDK
+ *                             treats this as bytes — verifiers
+ *                             validate against Google's / Apple's
+ *                             attestation roots out of band.
+ *   attestation_type          Free-form tag ("play_integrity",
+ *                             "app_attest", "device_check", etc.).
+ *                             Copied into the envelope.
+ *
+ * Pass token_bytes=NULL / token_len=0 to clear a previously-pushed
+ * attestation (e.g. on user logout). Attestation lifetime is
+ * integrator-managed — the SDK never times tokens out itself; if
+ * yours expire, push a fresh one before the next evaluate. */
+sentlog_status_t sentlog_set_device_attestation(
+    sentlog_handle_t* handle,
+    const uint8_t*    token_bytes,
+    size_t            token_len,
+    const char*       attestation_type);
+
 /* --------------------------------------------------------------------
  * OTA
  * ----------------------------------------------------------------- */

@@ -214,7 +214,8 @@ std::string build_envelope_unsigned(const Config& config,
                                     const std::string& result_json,
                                     const std::string& valid_from_iso8601_utc,
                                     const ProjectionSpec& spec,
-                                    const EncodedAudioClip* audio_clip) {
+                                    const EncodedAudioClip* audio_clip,
+                                    const DeviceAttestation* device_attestation) {
     // The result must be valid JSON — Pipeline::run only produces
     // well-formed JSON, so this is a programming-error path rather
     // than a hot one.
@@ -240,6 +241,21 @@ std::string build_envelope_unsigned(const Config& config,
     }
     if (result_obj.contains("evidence_grade")) {
         subject["evidence_grade"] = result_obj["evidence_grade"];
+    }
+    // Phase 5e: device-attestation token. Attach the {type, token_b64}
+    // block and promote evidence_grade to "DeviceAttested" — but only
+    // when the current grade is "DeviceUnattested" (never demote from
+    // a higher grade like "EnclaveSigned" set by hw signing in 7c-i).
+    if (device_attestation != nullptr &&
+        !device_attestation->token_b64.empty()) {
+        json att;
+        att["type"]      = device_attestation->type;
+        att["token_b64"] = device_attestation->token_b64;
+        subject["device_attestation"] = std::move(att);
+        const auto cur = subject.value("evidence_grade", std::string());
+        if (cur == "DeviceUnattested") {
+            subject["evidence_grade"] = "DeviceAttested";
+        }
     }
     if (!config.companion_evidence_refs.empty()) {
         subject["companion_evidence_refs"] = config.companion_evidence_refs;

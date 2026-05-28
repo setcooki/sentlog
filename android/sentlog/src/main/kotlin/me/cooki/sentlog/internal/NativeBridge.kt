@@ -63,6 +63,11 @@ internal object NativeBridge {
         arousal: Float,
         dominantFauCsv: String?,
     ): Int
+    @JvmStatic external fun nativeSetDeviceAttestation(
+        handle: Long,
+        tokenBytes: ByteArray?,
+        attestationType: String?,
+    ): Int
     @JvmStatic external fun nativeSetAudioRoute(handle: Long, route: Int): Int
     /** Non-destructive snapshot. Returns the number of samples written into [out]. */
     @JvmStatic external fun nativeSnapshotAudio(handle: Long, out: FloatArray): Int

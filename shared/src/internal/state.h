@@ -220,6 +220,14 @@ public:
     void set_tsa_provider(sentlog_tsa_provider_cb_t cb,
                           void* userdata) noexcept;
 
+    /// Push (or clear, when token_bytes is empty) the most recent
+    /// device-attestation token from Play Integrity / App Attest.
+    /// Recorded as credentialSubject.device_attestation on every
+    /// dispatched envelope; promotes evidence_grade to
+    /// "DeviceAttested" (unless already EnclaveSigned).
+    void set_device_attestation(const std::vector<uint8_t>& token_bytes,
+                                const std::string& attestation_type) noexcept;
+
     /// Internal accessors for the dispatch loop.
     sentlog_audio_encoder_cb_t audio_encoder_cb() const noexcept;
     void*                      audio_encoder_userdata() const noexcept;
@@ -352,6 +360,12 @@ private:
     // Phase 4h TSA provider. Engaged when config.tsa_endpoint is set.
     sentlog_tsa_provider_cb_t                    tsa_provider_cb_{nullptr};
     void*                                        tsa_provider_userdata_{nullptr};
+
+    // Phase 5e device attestation. Integrator-pushed token + type;
+    // attached to credentialSubject.device_attestation on each
+    // dispatched envelope. Empty token = no attestation.
+    std::vector<uint8_t>                         device_attestation_token_;
+    std::string                                  device_attestation_type_;
 
     /// Default: UNKNOWN. The platform binding pushes the real route
     /// at startCapture; integrators that never push see audio_source

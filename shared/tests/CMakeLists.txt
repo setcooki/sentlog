@@ -29,6 +29,7 @@ add_executable(sentlog_tests
     telemetry_sweep_test.cpp
     audio_encoder_test.cpp
     tsa_provider_test.cpp
+    device_attestation_test.cpp
 )
 target_link_libraries(sentlog_tests
     PRIVATE

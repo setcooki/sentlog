@@ -389,6 +389,36 @@ public object Sentlog {
     }
 
     /**
+     * Phase 5e: push the most recent device-attestation token (from
+     * Play Integrity). The SDK records the token + type as
+     * `credentialSubject.device_attestation` on every dispatched
+     * envelope and promotes `evidence_grade` from `DeviceUnattested`
+     * to `DeviceAttested`. Never demotes from `EnclaveSigned` (set
+     * by hardware-backed signing in 7c-i).
+     *
+     * Pass `tokenBytes = null` to clear a previously-pushed
+     * attestation. Attestation lifetime is integrator-managed; if
+     * yours expire, push a fresh one before the next evaluate.
+     *
+     * Today the integrator wires Play Integrity directly. A bundled
+     * `PlayIntegrityAttester` helper (Google Play Services dep) is
+     * planned for 5e-ii.
+     */
+    public fun setDeviceAttestation(
+        tokenBytes: ByteArray?,
+        attestationType: String? = null,
+    ) {
+        val h = requireHandle()
+        val s = NativeBridge.nativeSetDeviceAttestation(
+            h, tokenBytes, attestationType)
+        if (s != NativeBridge.STATUS_OK) {
+            throw IllegalArgumentException(
+                "setDeviceAttestation rejected (status=$s) — when " +
+                "tokenBytes is non-null, attestationType must be non-empty")
+        }
+    }
+
+    /**
      * Phase 4d: register the Ed25519 signing key the SDK uses to
      * populate the W3C VC 2.0 envelope's `proof` block.
      * `secretKey` is the 64-byte RFC 8032 seed||pubkey concatenation;

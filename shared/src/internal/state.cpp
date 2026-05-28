@@ -598,6 +598,14 @@ void State::set_tsa_provider(sentlog_tsa_provider_cb_t cb,
     tsa_provider_userdata_ = userdata;
 }
 
+void State::set_device_attestation(const std::vector<uint8_t>& token_bytes,
+                                   const std::string& attestation_type) noexcept {
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    device_attestation_token_ = token_bytes;
+    device_attestation_type_  = token_bytes.empty()
+        ? std::string() : attestation_type;
+}
+
 void State::set_audio_encoder(sentlog_audio_encoder_cb_t cb,
                               void* userdata,
                               const std::string& codec_name) noexcept {
@@ -692,6 +700,21 @@ void State::dispatch_envelopes(const std::string& result_json,
             any_wants_clip = true; break;
         }
     }
+    // Phase 5e: snapshot the device-attestation token (if any)
+    // under the same lock as the rest of the signing material.
+    DeviceAttestation device_att;
+    const DeviceAttestation* device_att_ptr = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(signing_mutex_);
+        if (!device_attestation_token_.empty()) {
+            device_att.type = device_attestation_type_;
+            device_att.token_b64 = base64_standard(
+                device_attestation_token_.data(),
+                device_attestation_token_.size());
+            device_att_ptr = &device_att;
+        }
+    }
+
     EncodedAudioClip       encoded_clip;
     const EncodedAudioClip* encoded_clip_ptr = nullptr;
     if (any_wants_clip && enc_cb != nullptr && !audio_snapshot.empty()) {
@@ -792,7 +815,8 @@ void State::dispatch_envelopes(const std::string& result_json,
                 promoted["evidence_grade"] = "EnclaveSigned";
                 const std::string promoted_str = promoted.dump();
                 envelope_json = build_envelope_unsigned(
-                    config_, promoted_str, valid_from, spec, encoded_clip_ptr);
+                    config_, promoted_str, valid_from, spec,
+                    encoded_clip_ptr, device_att_ptr);
 
                 auto signer = [&](std::string_view canonical)
                     -> std::vector<uint8_t> {
@@ -834,7 +858,8 @@ void State::dispatch_envelopes(const std::string& result_json,
         if (!hw_signed) {
             try {
                 envelope_json = build_envelope_unsigned(
-                    config_, result_json, valid_from, spec, encoded_clip_ptr);
+                    config_, result_json, valid_from, spec,
+                    encoded_clip_ptr, device_att_ptr);
                 if (sign) {
                     envelope_json = sign_envelope_eddsa_jcs(
                         envelope_json, snap_key, snap_vm, valid_from);

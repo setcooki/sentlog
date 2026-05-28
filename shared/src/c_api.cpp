@@ -255,6 +255,25 @@ sentlog_status_t sentlog_set_tsa_provider(
     return SENTLOG_OK;
 }
 
+sentlog_status_t sentlog_set_device_attestation(
+    sentlog_handle_t* handle,
+    const uint8_t*    token_bytes,
+    size_t            token_len,
+    const char*       attestation_type) {
+    if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
+    if (token_bytes != nullptr && token_len > 0 &&
+        (attestation_type == nullptr || attestation_type[0] == '\0')) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
+    std::vector<uint8_t> tok;
+    if (token_bytes != nullptr && token_len > 0) {
+        tok.assign(token_bytes, token_bytes + token_len);
+    }
+    handle->state->set_device_attestation(
+        tok, attestation_type ? std::string(attestation_type) : std::string());
+    return SENTLOG_OK;
+}
+
 sentlog_status_t sentlog_set_audio_encoder(
     sentlog_handle_t*          handle,
     sentlog_audio_encoder_cb_t cb,

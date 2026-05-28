@@ -399,6 +399,33 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativePushFaceFrame(
 }
 
 JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativeSetDeviceAttestation(
+    JNIEnv* env, jclass /*clazz*/, jlong handle,
+    jbyteArray token_j, jstring type_j) {
+
+    sentlog_handle_t* h = native_from_jlong(handle);
+    if (h == nullptr) return SENTLOG_ERR_INVALID_STATE;
+
+    if (token_j == nullptr) {
+        // Clear path.
+        return static_cast<jint>(sentlog_set_device_attestation(
+            h, nullptr, 0, nullptr));
+    }
+    const jsize len = env->GetArrayLength(token_j);
+    std::vector<uint8_t> bytes(static_cast<size_t>(len));
+    if (len > 0) {
+        env->GetByteArrayRegion(token_j, 0, len,
+                                reinterpret_cast<jbyte*>(bytes.data()));
+    }
+    const char* type = (type_j != nullptr)
+        ? env->GetStringUTFChars(type_j, nullptr) : nullptr;
+    const jint rc = static_cast<jint>(sentlog_set_device_attestation(
+        h, bytes.data(), bytes.size(), type));
+    if (type != nullptr) env->ReleaseStringUTFChars(type_j, type);
+    return rc;
+}
+
+JNIEXPORT jint JNICALL
 Java_me_cooki_sentlog_internal_NativeBridge_nativeSetAudioRoute(
     JNIEnv* /*env*/, jclass /*clazz*/, jlong handle, jint route) {
     return static_cast<jint>(sentlog_set_audio_route(

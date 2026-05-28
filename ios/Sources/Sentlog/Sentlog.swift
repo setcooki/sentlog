@@ -474,6 +474,44 @@ public enum Sentlog {
         try NativeBridge.mustSucceed(s, "pushFaceFrame")
     }
 
+    /// Phase 5e: push the most recent device-attestation token (from
+    /// App Attest / DeviceCheck). Recorded as
+    /// `credentialSubject.device_attestation` on every dispatched
+    /// envelope; promotes `evidence_grade` from `DeviceUnattested`
+    /// to `DeviceAttested`. Never demotes from `EnclaveSigned`.
+    ///
+    /// Pass `tokenBytes = nil` to clear a previously-pushed
+    /// attestation. Attestation lifetime is integrator-managed.
+    ///
+    /// Today the integrator wires App Attest directly. A bundled
+    /// `AppAttestAttester` helper is planned for 5e-ii.
+    public static func setDeviceAttestation(
+        _ tokenBytes: Data?,
+        attestationType: String? = nil
+    ) throws {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let h = try requireHandleLocked()
+        let status: sentlog_status_t
+        if let tokenBytes, !tokenBytes.isEmpty {
+            guard let type = attestationType, !type.isEmpty else {
+                throw SentlogError(status: SENTLOG_ERR_INVALID_CONFIG,
+                                   context: "setDeviceAttestation: attestationType required when token is non-nil")
+            }
+            status = tokenBytes.withUnsafeBytes { buf -> sentlog_status_t in
+                let p = buf.baseAddress?.bindMemory(
+                    to: UInt8.self, capacity: tokenBytes.count)
+                return type.withCString { typeC in
+                    sentlog_set_device_attestation(
+                        h, p, tokenBytes.count, typeC)
+                }
+            }
+        } else {
+            status = sentlog_set_device_attestation(h, nil, 0, nil)
+        }
+        try NativeBridge.mustSucceed(status, "setDeviceAttestation")
+    }
+
     public static func setSigningKey(_ secretKey: Data,
                                      verificationMethod: String) throws {
         stateLock.lock()
