@@ -129,7 +129,11 @@ public enum OpusAudioEncoder {
             let pktCount = Int(outBuf.packetCount)
             let byteCount = Int(outBuf.byteLength)
             if pktCount > 0 && byteCount > 0 {
-                encoded.append(UnsafePointer(outBuf.data), count: byteCount)
+                // outBuf.data is UnsafeMutableRawPointer; bind to
+                // UInt8 explicitly for Data.append(_:count:).
+                let typed = UnsafeRawPointer(outBuf.data)
+                    .assumingMemoryBound(to: UInt8.self)
+                encoded.append(typed, count: byteCount)
             }
             if status == .endOfStream || status == .error { break }
             if pktCount == 0 { break }
