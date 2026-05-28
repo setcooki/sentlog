@@ -226,6 +226,14 @@ int on_audio_encode(const float* pcm_samples_f32,
             env->SetFloatArrayRegion(pcm_j, 0,
                                      static_cast<jsize>(num_samples),
                                      pcm_samples_f32);
+            // SetFloatArrayRegion can throw
+            // ArrayIndexOutOfBoundsException; clear so the next
+            // CallObjectMethod doesn't fail/hang on a pending exception.
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                env->DeleteLocalRef(pcm_j);
+                return;
+            }
         }
         auto enc_j = static_cast<jbyteArray>(
             env->CallObjectMethod(cb->ref, cb->method, pcm_j,
@@ -271,6 +279,11 @@ int on_tsa_request(const uint8_t* to_hash_bytes,
             env->SetByteArrayRegion(
                 hash_j, 0, static_cast<jsize>(to_hash_len),
                 reinterpret_cast<const jbyte*>(to_hash_bytes));
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                env->DeleteLocalRef(hash_j);
+                return;
+            }
         }
         jstring url_j = env->NewStringUTF(
             tsa_endpoint_url ? tsa_endpoint_url : "");

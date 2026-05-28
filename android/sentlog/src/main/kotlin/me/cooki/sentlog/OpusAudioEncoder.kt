@@ -97,12 +97,20 @@ public object OpusAudioEncoder {
                             MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec.start()
 
-            // Convert float PCM → 16-bit signed PCM in-place into a
-            // ShortArray-backed ByteBuffer. MediaCodec's Opus encoder
-            // expects PCM_16BIT input.
+            // Convert float PCM → 16-bit signed PCM. MediaCodec's
+            // Opus encoder expects PCM_16BIT input.
+            //
+            // Scale by 32768 (NOT 32767) so the symmetric float range
+            // [-1, 1] maps to the full signed-16 range [-32768, 32767]
+            // without losing the negative full-scale bin: -1.0 → -32768
+            // exactly, +1.0 → +32768 then coerced down to +32767 (the
+            // standard one-LSB asymmetry that signed integers can't
+            // avoid). Multiplying by 32767 — the previous code —
+            // mapped -1.0 to -32767 and lost a bit of negative
+            // dynamic range.
             val pcm16 = ByteArray(pcmSamples.size * 2)
             for (i in pcmSamples.indices) {
-                val s = (pcmSamples[i].coerceIn(-1.0f, 1.0f) * 32767.0f).toInt()
+                val s = (pcmSamples[i].coerceIn(-1.0f, 1.0f) * 32768.0f).toInt()
                     .coerceIn(-32768, 32767)
                 pcm16[i * 2]     = (s and 0xFF).toByte()
                 pcm16[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()

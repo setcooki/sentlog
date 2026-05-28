@@ -120,10 +120,14 @@ public enum OpusAudioEncoder {
         var encoded = Data()
         encoded.reserveCapacity(256 * 1024)
         // Opus output frame size: 20 ms at 16 kHz = 320 frames.
-        // Keep pulling 1024-frame chunks until the converter signals end.
-        let outBuf = AVAudioCompressedBuffer(
-            format: outFmt, packetCapacity: 64, maximumPacketSize: 4096)
+        // Allocate a fresh AVAudioCompressedBuffer per iteration —
+        // Apple's docs don't guarantee packetCount/byteLength reset
+        // between converter.convert calls, so reusing the same
+        // buffer can accumulate packets and write duplicates to
+        // `encoded`. Allocation is cheap relative to the encode.
         while true {
+            let outBuf = AVAudioCompressedBuffer(
+                format: outFmt, packetCapacity: 64, maximumPacketSize: 4096)
             var err: NSError?
             let status = converter.convert(
                 to: outBuf, error: &err, withInputFrom: inputBlock)

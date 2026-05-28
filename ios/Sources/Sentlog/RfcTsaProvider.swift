@@ -82,14 +82,22 @@ public enum RfcTsaProvider {
         req.setValue("application/timestamp-reply",
                      forHTTPHeaderField: "Accept")
 
-        let sem      = DispatchSemaphore(value: 0)
-        var respData: Data? = nil
+        // Heap-allocated holder so the URLSession callback can safely
+        // write to it after the stack frame here returns. Lock guards
+        // the late-write-vs-read race when the timeout fires
+        // concurrently with the callback completing.
+        final class Holder { var data: Data? }
+        let holder = Holder()
+        let lock = NSLock()
+        let sem  = DispatchSemaphore(value: 0)
         let task = URLSession.shared.dataTask(with: req) { data, response, _ in
             defer { sem.signal() }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode),
                   let data, data.count <= maxTsaRespBytes else { return }
-            respData = data
+            lock.lock()
+            holder.data = data
+            lock.unlock()
         }
         task.resume()
         let timeout = DispatchTime.now() + .milliseconds(timeoutMs)
@@ -97,7 +105,10 @@ public enum RfcTsaProvider {
             task.cancel()
             return nil
         }
-        return respData
+        lock.lock()
+        let result = holder.data
+        lock.unlock()
+        return result
     }
 
     /// Encode a minimal RFC 3161 TimeStampReq — matches the Kotlin

@@ -40,6 +40,13 @@ public struct AppAttestAttester {
     /// `keyIdStoreKey` is the UserDefaults key under which the keyId
     /// is persisted; defaults to a Sentlog-namespaced key. Custom apps
     /// with multiple attestation contexts should pass distinct keys.
+    /// Serialises concurrent first-time `create()` calls so two
+    /// threads racing on app startup don't both call generateKey
+    /// and end up with separate keyIds (only one of which gets
+    /// persisted). Once the keyId is in UserDefaults the
+    /// fast-path load is contention-free.
+    private static let createLock = NSLock()
+
     public static func create(
         keyIdStoreKey: String = "me.cooki.sentlog.appattest.keyId"
     ) async throws -> AppAttestAttester {
@@ -51,6 +58,16 @@ public struct AppAttestAttester {
             throw SentlogError(status: SENTLOG_ERR_HARDWARE_SIGNING,
                                context: "AppAttestAttester: DCAppAttestService.isSupported == false")
         }
+        // Fast path outside the lock: existing keyId already persisted.
+        if let existing = UserDefaults.standard.string(forKey: keyIdStoreKey) {
+            return AppAttestAttester(keyId: existing, storeKey: keyIdStoreKey)
+        }
+        // Slow path: serialise the load-then-generateKey-then-persist
+        // sequence so concurrent first-callers converge on one keyId.
+        // Note we double-check under the lock — another caller may
+        // have populated the store while we were waiting.
+        createLock.lock()
+        defer { createLock.unlock() }
         if let existing = UserDefaults.standard.string(forKey: keyIdStoreKey) {
             return AppAttestAttester(keyId: existing, storeKey: keyIdStoreKey)
         }

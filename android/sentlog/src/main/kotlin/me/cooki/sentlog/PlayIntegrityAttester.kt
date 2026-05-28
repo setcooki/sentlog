@@ -39,11 +39,11 @@ public class PlayIntegrityAttester private constructor(
     public companion object {
         /**
          * Create an attester bound to the given application context.
-         * Doesn't touch Play Services yet — the actual
-         * `IntegrityManager` instance is created lazily on first
-         * `attest()` call.
+         * Probes the runtime classpath for `IntegrityManagerFactory`
+         * eagerly so missing-dep errors surface at `create()`
+         * instead of the first `attest()` call.
          *
-         * Throws [NoClassDefFoundError] when the Play Integrity dep
+         * Throws [IllegalStateException] when the Play Integrity dep
          * isn't on the runtime classpath; throws
          * [IllegalArgumentException] when `context` isn't an
          * application context (passing an Activity here leaks).
@@ -52,6 +52,22 @@ public class PlayIntegrityAttester private constructor(
         public fun create(applicationContext: Context): PlayIntegrityAttester {
             require(applicationContext === applicationContext.applicationContext) {
                 "PlayIntegrityAttester.create: pass applicationContext, not an Activity"
+            }
+            // Eager classpath probe — matches the docstring claim.
+            // Without this, the missing-dep failure would surface
+            // only on the first attest() call, which integrators
+            // building dep-detection logic on top of create() would
+            // miss.
+            try {
+                Class.forName(
+                    "com.google.android.play.core.integrity.IntegrityManagerFactory",
+                    /* initialize = */ false,
+                    PlayIntegrityAttester::class.java.classLoader)
+            } catch (e: ClassNotFoundException) {
+                throw IllegalStateException(
+                    "PlayIntegrityAttester.create: Play Integrity dep not on " +
+                    "classpath. Add `implementation \"com.google.android.play:integrity:1.3.0\"` " +
+                    "to your app's build.gradle (the SDK declares it compileOnly).", e)
             }
             return PlayIntegrityAttester(applicationContext)
         }
