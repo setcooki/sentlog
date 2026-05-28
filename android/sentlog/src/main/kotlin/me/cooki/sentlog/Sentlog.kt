@@ -356,6 +356,39 @@ public object Sentlog {
         }
 
     /**
+     * Phase 5b: push one face-affect frame computed by the platform-
+     * side affect head (the integrator's MediaPipe Face Mesh +
+     * affect-head MLP). Raw landmarks never reach the SDK — only the
+     * derived (valence, arousal, FAU) values cross the boundary, per
+     * the structural privacy guarantee in spec §5.3.
+     *
+     * `valence` is [-1, 1]; `arousal` is [0, 1]; `dominantFauCsv` is a
+     * comma-separated list of activated FAU codes (e.g. "AU6,AU12"),
+     * or null when no FAU was dominant in this frame.
+     *
+     * Frames must be pushed between [startCapture] and [evaluate];
+     * lifecycle violation throws [IllegalStateException]. The SDK
+     * aggregates buffered frames into `Affect{valence, arousal,
+     * dominant_fau}` in the result and contributes to engagement
+     * via the `engagement.face` scoring weight.
+     */
+    public fun pushFaceFrame(
+        timestampNs: Long,
+        valence: Float,
+        arousal: Float,
+        dominantFauCsv: String? = null,
+    ) {
+        val h = requireHandle()
+        val s = NativeBridge.nativePushFaceFrame(
+            h, timestampNs, valence, arousal, dominantFauCsv)
+        if (s != NativeBridge.STATUS_OK) {
+            throw IllegalStateException(
+                "pushFaceFrame failed (status=$s) — call between " +
+                "startCapture and evaluate")
+        }
+    }
+
+    /**
      * Phase 4d: register the Ed25519 signing key the SDK uses to
      * populate the W3C VC 2.0 envelope's `proof` block.
      * `secretKey` is the 64-byte RFC 8032 seed||pubkey concatenation;

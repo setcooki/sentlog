@@ -228,7 +228,14 @@ public:
     /// Dispatch envelopes to the registered dispatcher (and write
     /// local-queue forwarders to file). Called from State::evaluate
     /// after the result JSON is assembled.
-    void dispatch_envelopes(const std::string& result_json);
+    ///
+    /// `audio_snapshot` is the captured PCM (32-bit float, 16 kHz
+    /// mono) snapshotted by evaluate BEFORE Pipeline::run drained
+    /// the ring buffer. Used by the Phase 4g audio-encoder path on
+    /// AudioClip-bearing projections; pass empty when there's no
+    /// audio (silent evaluate or no encoder configured).
+    void dispatch_envelopes(const std::string& result_json,
+                            const std::vector<float>& audio_snapshot);
 
     // --- Phase 7: OTA manifest verification -----------------------
 

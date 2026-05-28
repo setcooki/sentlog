@@ -103,6 +103,16 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
         const auto pushed_motion     = snapshot_motion_frames();
         const auto pushed_face       = snapshot_face_frames();
         const auto route             = audio_route();
+        // Snapshot audio BEFORE Pipeline::run drains the ring (read()
+        // is destructive). Cheap to do unconditionally — vector
+        // allocation only matters when forwarders ask for a clip,
+        // and 30 s @ 16 kHz = ~1.9 MB, allocated once per evaluate.
+        std::vector<float> audio_snapshot(ring_.available());
+        if (!audio_snapshot.empty()) {
+            const size_t n = ring_.peek(audio_snapshot.data(),
+                                        audio_snapshot.size());
+            audio_snapshot.resize(n);
+        }
         const auto t_pipeline_start  = std::chrono::steady_clock::now();
         *result_json_out = Pipeline::run(config_, ring_,
                                          pushed_vad, pushed_liveness,
@@ -121,7 +131,7 @@ sentlog_status_t State::evaluate(std::string* result_json_out) {
         // dispatch_envelopes are absorbed (continue per forwarder)
         // so a misbehaving sink doesn't take down evaluate.
         if (!config_.forwarders.empty()) {
-            dispatch_envelopes(*result_json_out);
+            dispatch_envelopes(*result_json_out, audio_snapshot);
         }
     } catch (...) {
         phase_.store(static_cast<int>(LifecyclePhase::Idle),
@@ -629,7 +639,8 @@ sentlog_status_t State::set_hardware_signer(
     return SENTLOG_OK;
 }
 
-void State::dispatch_envelopes(const std::string& result_json) {
+void State::dispatch_envelopes(const std::string& result_json,
+                               const std::vector<float>& audio_snapshot) {
     // Snapshot the dispatcher + signing material under the lock so
     // we don't fire against half-cleared state after a concurrent
     // destroy or set_*. Copying ~96 bytes of crypto material is
@@ -683,27 +694,19 @@ void State::dispatch_envelopes(const std::string& result_json) {
     }
     EncodedAudioClip       encoded_clip;
     const EncodedAudioClip* encoded_clip_ptr = nullptr;
-    if (any_wants_clip && enc_cb != nullptr) {
-        // Snapshot the ring buffer. peek() returns the count of
-        // samples it actually wrote (≤ capacity). Empty ring → no
-        // clip; integrators see the placeholder block.
-        std::vector<float> pcm(ring_.available());
-        const size_t n = pcm.empty() ? 0
-            : ring_.peek(pcm.data(), pcm.size());
-        if (n > 0) {
-            std::vector<uint8_t> encoded(256 * 1024);
-            size_t out_len = encoded.size();
-            const int rc = enc_cb(pcm.data(), n, 16000,
-                                  encoded.data(), &out_len, enc_userdata);
-            if (rc == 0 && out_len > 0 && out_len <= encoded.size()) {
-                encoded_clip.codec     = enc_codec;
-                encoded_clip.bytes_b64 = base64_standard(encoded.data(), out_len);
-                encoded_clip_ptr       = &encoded_clip;
-            }
-            // encoder failure → leave encoded_clip_ptr null →
-            // placeholder ships. envelope build continues; the
-            // forwarder still dispatches.
+    if (any_wants_clip && enc_cb != nullptr && !audio_snapshot.empty()) {
+        std::vector<uint8_t> encoded(256 * 1024);
+        size_t out_len = encoded.size();
+        const int rc = enc_cb(audio_snapshot.data(), audio_snapshot.size(),
+                              16000, encoded.data(), &out_len, enc_userdata);
+        if (rc == 0 && out_len > 0 && out_len <= encoded.size()) {
+            encoded_clip.codec     = enc_codec;
+            encoded_clip.bytes_b64 = base64_standard(encoded.data(), out_len);
+            encoded_clip_ptr       = &encoded_clip;
         }
+        // encoder failure → leave encoded_clip_ptr null →
+        // placeholder ships. envelope build continues; the
+        // forwarder still dispatches.
     }
 
     // Sampling RNG (Phase 4f). One per dispatch invocation —

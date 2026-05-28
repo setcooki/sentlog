@@ -379,6 +379,26 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativePushMotionFrame(
 }
 
 JNIEXPORT jint JNICALL
+Java_me_cooki_sentlog_internal_NativeBridge_nativePushFaceFrame(
+    JNIEnv* env, jclass /*clazz*/, jlong handle,
+    jlong timestamp_ns, jfloat valence, jfloat arousal,
+    jstring dominant_fau_csv_j) {
+    const char* csv = nullptr;
+    if (dominant_fau_csv_j != nullptr) {
+        csv = env->GetStringUTFChars(dominant_fau_csv_j, nullptr);
+    }
+    const jint rc = static_cast<jint>(sentlog_push_face_frame(
+        native_from_jlong(handle),
+        static_cast<int64_t>(timestamp_ns),
+        static_cast<float>(valence), static_cast<float>(arousal),
+        csv));
+    if (csv != nullptr) {
+        env->ReleaseStringUTFChars(dominant_fau_csv_j, csv);
+    }
+    return rc;
+}
+
+JNIEXPORT jint JNICALL
 Java_me_cooki_sentlog_internal_NativeBridge_nativeSetAudioRoute(
     JNIEnv* /*env*/, jclass /*clazz*/, jlong handle, jint route) {
     return static_cast<jint>(sentlog_set_audio_route(

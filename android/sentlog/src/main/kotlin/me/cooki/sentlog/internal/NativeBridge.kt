@@ -56,6 +56,13 @@ internal object NativeBridge {
         ax: Float, ay: Float, az: Float,
         gx: Float, gy: Float, gz: Float,
     ): Int
+    @JvmStatic external fun nativePushFaceFrame(
+        handle: Long,
+        timestampNs: Long,
+        valence: Float,
+        arousal: Float,
+        dominantFauCsv: String?,
+    ): Int
     @JvmStatic external fun nativeSetAudioRoute(handle: Long, route: Int): Int
     /** Non-destructive snapshot. Returns the number of samples written into [out]. */
     @JvmStatic external fun nativeSnapshotAudio(handle: Long, out: FloatArray): Int
