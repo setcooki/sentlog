@@ -100,6 +100,13 @@ dependencies {
     // on-device. Ships its own JNI .so per ABI; the prebuilt AAR
     // covers arm64-v8a + x86_64 (matches our abiFilters above).
     implementation(libs.onnxruntime.android)
+    // Phase 5e-ii: Play Integrity, declared compileOnly so the SDK
+    // doesn't force integrators to ship Play Services unless they
+    // want device attestation. The PlayIntegrityAttester helper
+    // throws at runtime if the dep isn't on the classpath — apps
+    // that don't use device attestation never touch the helper and
+    // are unaffected.
+    compileOnly(libs.play.integrity)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
