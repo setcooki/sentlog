@@ -143,6 +143,41 @@ class SentlogModule(private val reactContext: ReactApplicationContext)
     }
 
     @ReactMethod
+    fun pushFaceFrame(
+        timestampNs: Double,
+        valence: Float,
+        arousal: Float,
+        dominantFauCsv: String?,
+        promise: Promise,
+    ) {
+        try {
+            Sentlog.pushFaceFrame(
+                timestampNs.toLong(),
+                valence, arousal, dominantFauCsv)
+            promise.resolve(null)
+        } catch (t: Throwable) {
+            promise.reject("pushFaceFrame", t.message, t)
+        }
+    }
+
+    @ReactMethod
+    fun setDeviceAttestation(
+        tokenBase64: String?,
+        attestationType: String?,
+        promise: Promise,
+    ) {
+        try {
+            val bytes = tokenBase64?.let {
+                android.util.Base64.decode(it, android.util.Base64.DEFAULT)
+            }
+            Sentlog.setDeviceAttestation(bytes, attestationType)
+            promise.resolve(null)
+        } catch (t: Throwable) {
+            promise.reject("setDeviceAttestation", t.message, t)
+        }
+    }
+
+    @ReactMethod
     fun checkForUpdates(manifestJson: String, promise: Promise) {
         scope.launch {
             try {

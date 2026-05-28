@@ -140,6 +140,40 @@ public class SentlogModule: RCTEventEmitter {
 
     // MARK: signing + dispatcher
 
+    @objc public func pushFaceFrame(_ timestampNs: NSNumber,
+                                    valence: NSNumber,
+                                    arousal: NSNumber,
+                                    dominantFauCsv: String?,
+                                    resolver resolve: @escaping RCTPromiseResolveBlock,
+                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
+        do {
+            try Sentlog.pushFaceFrame(
+                timestampNs:    timestampNs.int64Value,
+                valence:        valence.floatValue,
+                arousal:        arousal.floatValue,
+                dominantFauCsv: dominantFauCsv)
+            resolve(nil)
+        } catch {
+            reject("pushFaceFrame", error.localizedDescription, error)
+        }
+    }
+
+    @objc public func setDeviceAttestation(_ tokenBase64: String?,
+                                           attestationType: String?,
+                                           resolver resolve: @escaping RCTPromiseResolveBlock,
+                                           rejecter reject: @escaping RCTPromiseRejectBlock) {
+        do {
+            let bytes: Data? = tokenBase64.flatMap {
+                Data(base64Encoded: $0)
+            }
+            try Sentlog.setDeviceAttestation(
+                bytes, attestationType: attestationType)
+            resolve(nil)
+        } catch {
+            reject("setDeviceAttestation", error.localizedDescription, error)
+        }
+    }
+
     @objc public func setSigningKey(_ secretKeyBase64: String,
                                     verificationMethod: String,
                                     resolver resolve: @escaping RCTPromiseResolveBlock,

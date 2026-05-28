@@ -128,6 +128,39 @@ public class SentlogPlugin: CAPPlugin {
         }
     }
 
+    @objc public func pushFaceFrame(_ call: CAPPluginCall) {
+        guard let tsAny = call.getDouble("timestampNs"),
+              let valence = call.getFloat("valence"),
+              let arousal = call.getFloat("arousal") else {
+            call.reject("timestampNs, valence, arousal required"); return
+        }
+        let csv = call.getString("dominantFauCsv")
+        do {
+            try Sentlog.pushFaceFrame(
+                timestampNs:    Int64(tsAny),
+                valence:        valence,
+                arousal:        arousal,
+                dominantFauCsv: csv)
+            call.resolve()
+        } catch {
+            call.reject(error.localizedDescription, nil, error)
+        }
+    }
+
+    @objc public func setDeviceAttestation(_ call: CAPPluginCall) {
+        let tokenBase64 = call.getString("tokenBase64")
+        let type        = call.getString("attestationType")
+        do {
+            let bytes: Data? = tokenBase64.flatMap {
+                Data(base64Encoded: $0)
+            }
+            try Sentlog.setDeviceAttestation(bytes, attestationType: type)
+            call.resolve()
+        } catch {
+            call.reject(error.localizedDescription, nil, error)
+        }
+    }
+
     @objc public func setEnvelopeDispatcherActive(_ call: CAPPluginCall) {
         let active = call.getBool("active") ?? false
         do {

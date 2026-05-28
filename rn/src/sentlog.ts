@@ -43,6 +43,10 @@ interface NativeSentlogModule {
     setEnvelopeDispatcherActive(active: boolean): Promise<void>;
     setSigningKey(secretKeyBase64: string,
                   verificationMethod: string): Promise<void>;
+    pushFaceFrame(timestampNs: number, valence: number, arousal: number,
+                  dominantFauCsv: string | null): Promise<void>;
+    setDeviceAttestation(tokenBase64: string | null,
+                         attestationType: string | null): Promise<void>;
     drainQueueOnce(path: string, drainRequestId: string): Promise<number>;
     /** JS ⇒ Native: reply to a "SentlogDrainEnvelope" event so the
      *  native side can decide keep-vs-delete per envelope inside
@@ -205,6 +209,19 @@ export const Sentlog: SentlogBridge = {
             ensureDispatcherSub();
             await requireNative().setEnvelopeDispatcherActive(true);
         }
+    },
+
+    async pushFaceFrame(timestampNs: number, valence: number,
+                        arousal: number,
+                        dominantFauCsv?: string): Promise<void> {
+        await requireNative().pushFaceFrame(
+            timestampNs, valence, arousal, dominantFauCsv ?? null);
+    },
+
+    async setDeviceAttestation(tokenBase64: string | null,
+                                attestationType?: string): Promise<void> {
+        await requireNative().setDeviceAttestation(
+            tokenBase64, attestationType ?? null);
     },
 };
 

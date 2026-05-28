@@ -61,6 +61,20 @@ RCT_EXTERN_METHOD(setEnvelopeDispatcherActive
                   resolver : (RCTPromiseResolveBlock) resolve
                   rejecter : (RCTPromiseRejectBlock) reject)
 
+RCT_EXTERN_METHOD(pushFaceFrame
+                  : (nonnull NSNumber *) timestampNs
+                  valence : (nonnull NSNumber *) valence
+                  arousal : (nonnull NSNumber *) arousal
+                  dominantFauCsv : (NSString *) dominantFauCsv
+                  resolver : (RCTPromiseResolveBlock) resolve
+                  rejecter : (RCTPromiseRejectBlock) reject)
+
+RCT_EXTERN_METHOD(setDeviceAttestation
+                  : (NSString *) tokenBase64
+                  attestationType : (NSString *) attestationType
+                  resolver : (RCTPromiseResolveBlock) resolve
+                  rejecter : (RCTPromiseRejectBlock) reject)
+
 RCT_EXTERN_METHOD(drainQueueOnce
                   : (NSString *) path
                   drainRequestId : (NSString *) drainRequestId

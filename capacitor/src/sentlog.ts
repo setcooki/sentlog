@@ -45,6 +45,11 @@ interface NativeSentlogPlugin {
     setSigningKey(args: { secretKeyBase64: string;
                           verificationMethod: string }): Promise<void>;
     setEnvelopeDispatcherActive(args: { active: boolean }): Promise<void>;
+    pushFaceFrame(args: { timestampNs: number; valence: number;
+                          arousal: number;
+                          dominantFauCsv: string | null }): Promise<void>;
+    setDeviceAttestation(args: { tokenBase64: string | null;
+                                  attestationType: string | null }): Promise<void>;
     drainQueueOnce(args: { path: string;
                            drainRequestId: string }): Promise<{ delivered: number }>;
     drainQueueReply(args: { drainRequestId: string;
@@ -193,6 +198,23 @@ export const Sentlog: SentlogBridge = {
             await ensureDispatcherSub();
             await Native.setEnvelopeDispatcherActive({ active: true });
         }
+    },
+
+    async pushFaceFrame(timestampNs: number, valence: number,
+                        arousal: number,
+                        dominantFauCsv?: string): Promise<void> {
+        await Native.pushFaceFrame({
+            timestampNs, valence, arousal,
+            dominantFauCsv: dominantFauCsv ?? null,
+        });
+    },
+
+    async setDeviceAttestation(tokenBase64: string | null,
+                                attestationType?: string): Promise<void> {
+        await Native.setDeviceAttestation({
+            tokenBase64,
+            attestationType: attestationType ?? null,
+        });
     },
 };
 

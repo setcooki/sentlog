@@ -170,6 +170,41 @@ class SentlogPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun pushFaceFrame(call: PluginCall) {
+        // Capacitor numbers cross the bridge as Double; convert to Long
+        // for the underlying SDK call (nanosecond timestamps are
+        // Long-typed on the C ABI side).
+        val ts = call.getDouble("timestampNs")
+            ?: return call.reject("timestampNs required")
+        val valence = call.getFloat("valence")
+            ?: return call.reject("valence required")
+        val arousal = call.getFloat("arousal")
+            ?: return call.reject("arousal required")
+        val csv = call.getString("dominantFauCsv")
+        try {
+            Sentlog.pushFaceFrame(ts.toLong(), valence, arousal, csv)
+            call.resolve()
+        } catch (t: Throwable) {
+            call.reject(t.message ?: "pushFaceFrame failed", t)
+        }
+    }
+
+    @PluginMethod
+    fun setDeviceAttestation(call: PluginCall) {
+        val tokenBase64 = call.getString("tokenBase64")
+        val type        = call.getString("attestationType")
+        try {
+            val bytes = tokenBase64?.let {
+                android.util.Base64.decode(it, android.util.Base64.DEFAULT)
+            }
+            Sentlog.setDeviceAttestation(bytes, type)
+            call.resolve()
+        } catch (t: Throwable) {
+            call.reject(t.message ?: "setDeviceAttestation failed", t)
+        }
+    }
+
+    @PluginMethod
     fun setEnvelopeDispatcherActive(call: PluginCall) {
         val active = call.getBoolean("active") ?: false
         try {

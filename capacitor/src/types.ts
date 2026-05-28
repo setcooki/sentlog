@@ -365,4 +365,31 @@ export interface SentlogBridge {
     /** Phase 4d: register (or clear, with `null`) the per-handle
      *  envelope dispatcher. */
     setEnvelopeDispatcher(handler: EnvelopeDispatcher | null): Promise<void>;
+
+    /** Phase 5b/5c: push one face-affect frame derived by the platform-
+     *  side affect head. Raw landmarks never reach the SDK — only the
+     *  derived (valence, arousal, FAU) tuple crosses the boundary. */
+    pushFaceFrame(timestampNs: number, valence: number, arousal: number,
+                  dominantFauCsv?: string): Promise<void>;
+
+    /** Phase 5e: push the most recent device-attestation token from
+     *  Play Integrity / App Attest. Pass `tokenBase64=null` to clear.
+     *  `attestationType` (e.g. "play_integrity", "app_attest") is
+     *  required when token is non-null. */
+    setDeviceAttestation(tokenBase64: string | null,
+                         attestationType?: string): Promise<void>;
 }
+
+/**
+ * Native-only APIs (not bridged to JS today):
+ *   - setHardwareSigner — closure-based; needs a request-id/reply
+ *     protocol like drainQueue to bridge cleanly. JS apps that
+ *     need hardware signing should use the Kotlin/Swift Sentlog
+ *     wrapper directly OR push a SDK-bundled-helper-friendly
+ *     project type.
+ *   - setAudioEncoder / setTsaProvider — same callback-style barrier.
+ *     The native helpers (OpusAudioEncoder.install,
+ *     RfcTsaProvider.install, AppAttestAttester, PlayIntegrityAttester)
+ *     are the recommended path; JS apps embedding native code can
+ *     call them directly via interop.
+ */
