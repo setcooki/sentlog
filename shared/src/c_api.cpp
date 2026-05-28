@@ -246,6 +246,21 @@ sentlog_status_t sentlog_set_envelope_dispatcher(
     return SENTLOG_OK;
 }
 
+sentlog_status_t sentlog_set_audio_encoder(
+    sentlog_handle_t*          handle,
+    sentlog_audio_encoder_cb_t cb,
+    void*                      userdata,
+    const char*                codec_name) {
+    if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
+    if (cb != nullptr && (codec_name == nullptr || codec_name[0] == '\0')) {
+        return SENTLOG_ERR_INVALID_CONFIG;
+    }
+    handle->state->set_audio_encoder(
+        cb, userdata,
+        codec_name ? std::string(codec_name) : std::string());
+    return SENTLOG_OK;
+}
+
 sentlog_status_t sentlog_set_hardware_signer(
     sentlog_handle_t*    handle,
     sentlog_hw_sign_cb_t cb,

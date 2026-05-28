@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "internal/signing.h"  // for base64_standard
+
 namespace sentlog::internal {
 
 namespace {
@@ -51,38 +53,8 @@ std::array<float, kBandCount> frame_band_magnitudes(const float* frame) {
     return mags;
 }
 
-/// Standard base64 (no padding stripping). ~30 lines, no external dep.
-std::string base64_encode(const std::vector<unsigned char>& in) {
-    static constexpr char kAlphabet[] =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string out;
-    out.reserve(((in.size() + 2) / 3) * 4);
-    size_t i = 0;
-    while (i + 3 <= in.size()) {
-        const unsigned a = in[i];
-        const unsigned b = in[i + 1];
-        const unsigned c = in[i + 2];
-        out += kAlphabet[(a >> 2) & 0x3f];
-        out += kAlphabet[((a << 4) | (b >> 4)) & 0x3f];
-        out += kAlphabet[((b << 2) | (c >> 6)) & 0x3f];
-        out += kAlphabet[c & 0x3f];
-        i += 3;
-    }
-    if (i < in.size()) {
-        const unsigned a = in[i];
-        const unsigned b = (i + 1 < in.size()) ? in[i + 1] : 0;
-        out += kAlphabet[(a >> 2) & 0x3f];
-        out += kAlphabet[((a << 4) | (b >> 4)) & 0x3f];
-        if (i + 1 < in.size()) {
-            out += kAlphabet[(b << 2) & 0x3f];
-            out += '=';
-        } else {
-            out += '=';
-            out += '=';
-        }
-    }
-    return out;
-}
+// Base64 encode lives in signing.{h,cpp} as base64_standard — used
+// by fingerprint.cpp (here) and by state.cpp for audio_clip bytes.
 
 }  // namespace
 
@@ -108,7 +80,7 @@ std::string compute_fingerprint(const float* samples, size_t num_samples) {
         prev = curr;
     }
 
-    return base64_encode(bytes);
+    return base64_standard(bytes.data(), bytes.size());
 }
 
 }  // namespace sentlog::internal

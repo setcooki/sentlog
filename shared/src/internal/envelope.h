@@ -93,12 +93,22 @@ const char* projection_name(Projection p);
 /// `credentialSubject.payload`. For backwards compatibility, the
 /// default is the `Full` projection.
 ///
+/// `audio_clip` carries the pre-encoded audio bytes (Phase 4g) to
+/// embed in AudioClip-bearing projections. When absent, the
+/// envelope ships the documented empty-placeholder block so the
+/// wire shape stays stable even without a registered encoder.
+struct EncodedAudioClip {
+    std::string codec;       // e.g. "opus"
+    std::string bytes_b64;   // standard base64, with padding
+};
+
 /// Returns the serialised envelope. No "proof" block — 4b adds it.
 std::string build_envelope_unsigned(
     const Config& config,
     const std::string& result_json,
     const std::string& valid_from_iso8601_utc,
-    const ProjectionSpec& spec = ProjectionSpec{});
+    const ProjectionSpec& spec = ProjectionSpec{},
+    const EncodedAudioClip* audio_clip = nullptr);
 
 /// ISO-8601 UTC timestamp helper. Format:
 /// "2026-05-25T12:34:56.789Z". Suitable for `validFrom` /

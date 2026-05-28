@@ -135,6 +135,37 @@ typedef void (*sentlog_envelope_dispatch_cb_t)(
     const char* envelope_json,
     void* userdata);
 
+/* Audio encoder callback (Phase 4g). The platform binding implements
+ * this with the OS-native codec — AudioToolbox AVAudioConverter on
+ * iOS, MediaCodec on Android — typically producing Opus bytes. The
+ * SDK calls it once per evaluate when a configured forwarder's
+ * projection includes an audio clip (Full+AudioClip or EvidenceClip),
+ * snapshots the ring buffer as 32-bit float PCM at 16 kHz mono, and
+ * attaches the encoded bytes to the envelope's `audio_clip` block.
+ *
+ *   pcm_samples_f32        Pointer to the captured PCM frame buffer
+ *                          (32-bit float, mono, ring-buffer order).
+ *   num_samples            Number of float samples in the buffer.
+ *   sample_rate_hz         Hard-coded to 16000 today; future-proofed
+ *                          by being passed explicitly so a future
+ *                          variable-rate path doesn't need a new ABI.
+ *   encoded_out_buf        Caller-provided buffer the cb writes the
+ *                          encoded bytes into. Sized 256 KiB; far
+ *                          larger than any 30s @ 32 kbps Opus
+ *                          output (~ 120 KiB worst case).
+ *   encoded_out_len_inout  In: capacity. Out: bytes written.
+ *
+ * Returns 0 on success, non-zero on encoding failure. On failure the
+ * envelope's audio_clip falls back to an empty placeholder + a
+ * documented note; the dispatch continues per ForwarderOutcome=ok. */
+typedef int (*sentlog_audio_encoder_cb_t)(
+    const float*  pcm_samples_f32,
+    size_t        num_samples,
+    int           sample_rate_hz,
+    uint8_t*      encoded_out_buf,
+    size_t*       encoded_out_len_inout,
+    void*         userdata);
+
 /* Hardware-backed signing callback (Phase 7c). The platform binding
  * implements this with whatever the OS exposes: Secure Enclave on
  * iOS (ECDSA-P256), KeyStore StrongBox on Android (Ed25519 on API
@@ -474,6 +505,18 @@ sentlog_status_t sentlog_set_hardware_signer(
     void*                userdata,
     const char*          cryptosuite,
     const char*          verification_method);
+
+/* Register (or clear, when cb == NULL) the per-handle audio encoder
+ * used to populate `audio_clip.bytes` on AudioClip-bearing
+ * projections. Without a registered encoder the envelope ships the
+ * placeholder block (codec="opus", bytes="") + a note documenting
+ * the unencoded fall-back. `codec_name` is recorded in the envelope
+ * (`audio_clip.codec`); must match what the cb actually produces. */
+sentlog_status_t sentlog_set_audio_encoder(
+    sentlog_handle_t*          handle,
+    sentlog_audio_encoder_cb_t cb,
+    void*                      userdata,
+    const char*                codec_name);
 
 /* --------------------------------------------------------------------
  * OTA

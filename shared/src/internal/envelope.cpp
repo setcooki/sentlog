@@ -68,7 +68,8 @@ void copy_if_present(const json& src, json& dst, const char* key) {
 // surface. diagnostics + model_versions + evidence_grade tag along
 // in projections that carry scores, since verifiers need them to
 // interpret the numbers.
-json project_payload(const json& result, const ProjectionSpec& spec) {
+json project_payload(const json& result, const ProjectionSpec& spec,
+                     const EncodedAudioClip* audio_clip = nullptr) {
     json out = json::object();
 
     auto include_scores = [&]() {
@@ -100,14 +101,22 @@ json project_payload(const json& result, const ProjectionSpec& spec) {
     auto include_fingerprint = [&]() {
         copy_if_present(result, out, "fingerprint");
     };
-    // AudioClip — Phase 4g will populate this with Opus bytes. For
-    // now the projections that ask for a clip get an empty
-    // placeholder so the wire shape is stable.
-    auto include_clip_placeholder = [&]() {
+    // AudioClip — Phase 4g: when the binding has registered an
+    // audio encoder via sentlog_set_audio_encoder, dispatch_envelopes
+    // has pre-encoded the ring-buffer audio and hands the bytes in
+    // via audio_clip. Otherwise we ship the documented placeholder
+    // so the wire shape stays stable.
+    auto include_clip = [&]() {
         json clip = json::object();
-        clip["codec"] = "opus";
-        clip["bytes"] = "";
-        clip["note"]  = "Opus encoding lands in Phase 4g; placeholder for shape stability";
+        if (audio_clip != nullptr && !audio_clip->bytes_b64.empty()) {
+            clip["codec"] = audio_clip->codec;
+            clip["bytes"] = audio_clip->bytes_b64;
+        } else {
+            clip["codec"] = "opus";
+            clip["bytes"] = "";
+            clip["note"]  = "no audio encoder registered; "
+                            "set one via sentlog_set_audio_encoder";
+        }
         out["audio_clip"] = std::move(clip);
     };
 
@@ -120,7 +129,7 @@ json project_payload(const json& result, const ProjectionSpec& spec) {
             break;
         case Projection::FullPlusAudioClip:
             out = result;
-            include_clip_placeholder();
+            include_clip();
             break;
         case Projection::ScoresOnly:
             include_scores();
@@ -135,7 +144,7 @@ json project_payload(const json& result, const ProjectionSpec& spec) {
             break;
         case Projection::EvidenceClip:
             include_scores();
-            include_clip_placeholder();
+            include_clip();
             break;
         case Projection::Custom:
             for (const auto& path : spec.custom_fields) {
@@ -204,7 +213,8 @@ std::string iso8601_utc_now() {
 std::string build_envelope_unsigned(const Config& config,
                                     const std::string& result_json,
                                     const std::string& valid_from_iso8601_utc,
-                                    const ProjectionSpec& spec) {
+                                    const ProjectionSpec& spec,
+                                    const EncodedAudioClip* audio_clip) {
     // The result must be valid JSON — Pipeline::run only produces
     // well-formed JSON, so this is a programming-error path rather
     // than a hot one.
@@ -236,7 +246,7 @@ std::string build_envelope_unsigned(const Config& config,
     }
 
     subject["projection"] = projection_name(spec.kind);
-    subject["payload"]    = project_payload(result_obj, spec);
+    subject["payload"]    = project_payload(result_obj, spec, audio_clip);
 
     env["credentialSubject"] = std::move(subject);
 

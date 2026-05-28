@@ -207,6 +207,18 @@ public:
         const std::string& cryptosuite,
         const std::string& verification_method) noexcept;
 
+    /// Register (or clear, when cb == nullptr) the audio encoder
+    /// used to populate `audio_clip.bytes` on AudioClip-bearing
+    /// projections. `codec_name` is written into the envelope.
+    void set_audio_encoder(sentlog_audio_encoder_cb_t cb,
+                           void* userdata,
+                           const std::string& codec_name) noexcept;
+
+    /// Internal accessors for the dispatch loop.
+    sentlog_audio_encoder_cb_t audio_encoder_cb() const noexcept;
+    void*                      audio_encoder_userdata() const noexcept;
+    std::string                audio_encoder_codec() const;
+
     /// Dispatch envelopes to the registered dispatcher (and write
     /// local-queue forwarders to file). Called from State::evaluate
     /// after the result JSON is assembled.
@@ -315,6 +327,14 @@ private:
     void*                                        hw_signer_userdata_{nullptr};
     std::string                                  hw_cryptosuite_;
     std::string                                  hw_verification_method_;
+
+    // Phase 4g audio encoder. When non-null + a projection includes
+    // audio_clip, dispatch_envelopes snapshots the ring buffer and
+    // calls this for the encoded bytes. codec_name is recorded in
+    // the envelope's audio_clip.codec field.
+    sentlog_audio_encoder_cb_t                   audio_encoder_cb_{nullptr};
+    void*                                        audio_encoder_userdata_{nullptr};
+    std::string                                  audio_encoder_codec_;
 
     /// Default: UNKNOWN. The platform binding pushes the real route
     /// at startCapture; integrators that never push see audio_source

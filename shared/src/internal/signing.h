@@ -66,6 +66,11 @@ std::array<uint8_t, kEd25519SignatureBytes> ed25519_sign(
 /// value spec). Used for `proof.proofValue`.
 std::string base64url_no_pad(const uint8_t* bytes, size_t len);
 
+/// Standard base64 (RFC 4648, with `=` padding). Used for embedding
+/// binary fields (fingerprint bytes, encoded audio clip) inside the
+/// envelope JSON.
+std::string base64_standard(const uint8_t* bytes, size_t len);
+
 /// Apply `eddsa-jcs-2022` to the unsigned envelope JSON: canonicalise
 /// per JCS, sign with Ed25519, attach the `proof` block, return the
 /// serialised signed envelope.

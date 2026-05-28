@@ -27,6 +27,7 @@ add_executable(sentlog_tests
     ota_test.cpp
     hw_signer_test.cpp
     telemetry_sweep_test.cpp
+    audio_encoder_test.cpp
 )
 target_link_libraries(sentlog_tests
     PRIVATE

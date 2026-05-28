@@ -581,6 +581,28 @@ void State::set_envelope_dispatcher(sentlog_envelope_dispatch_cb_t cb,
     envelope_dispatcher_userdata_ = userdata;
 }
 
+void State::set_audio_encoder(sentlog_audio_encoder_cb_t cb,
+                              void* userdata,
+                              const std::string& codec_name) noexcept {
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    audio_encoder_cb_       = cb;
+    audio_encoder_userdata_ = userdata;
+    audio_encoder_codec_    = (cb != nullptr) ? codec_name : std::string();
+}
+
+sentlog_audio_encoder_cb_t State::audio_encoder_cb() const noexcept {
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    return audio_encoder_cb_;
+}
+void* State::audio_encoder_userdata() const noexcept {
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    return audio_encoder_userdata_;
+}
+std::string State::audio_encoder_codec() const {
+    std::lock_guard<std::mutex> lock(signing_mutex_);
+    return audio_encoder_codec_;
+}
+
 sentlog_status_t State::set_hardware_signer(
     sentlog_hw_sign_cb_t cb,
     void* userdata,
@@ -630,6 +652,52 @@ void State::dispatch_envelopes(const std::string& result_json) {
         hw_vm          = hw_verification_method_;
     }
     const bool try_hw = (hw_cb != nullptr) && config_.use_hardware_signing;
+
+    // Phase 4g: pre-compute the encoded audio clip once if any
+    // forwarder's projection asks for one AND an encoder is
+    // registered. All forwarders in this dispatch share the same
+    // ring-buffer audio, so encoding repeatedly per forwarder would
+    // be pure waste.
+    sentlog_audio_encoder_cb_t enc_cb       = nullptr;
+    void*                      enc_userdata = nullptr;
+    std::string                enc_codec;
+    {
+        std::lock_guard<std::mutex> lock(signing_mutex_);
+        enc_cb       = audio_encoder_cb_;
+        enc_userdata = audio_encoder_userdata_;
+        enc_codec    = audio_encoder_codec_;
+    }
+    bool any_wants_clip = false;
+    for (const auto& fw : config_.forwarders) {
+        if (fw.projection == "Full+AudioClip" ||
+            fw.projection == "EvidenceClip") {
+            any_wants_clip = true; break;
+        }
+    }
+    EncodedAudioClip       encoded_clip;
+    const EncodedAudioClip* encoded_clip_ptr = nullptr;
+    if (any_wants_clip && enc_cb != nullptr) {
+        // Snapshot the ring buffer. peek() returns the count of
+        // samples it actually wrote (≤ capacity). Empty ring → no
+        // clip; integrators see the placeholder block.
+        std::vector<float> pcm(ring_.available());
+        const size_t n = pcm.empty() ? 0
+            : ring_.peek(pcm.data(), pcm.size());
+        if (n > 0) {
+            std::vector<uint8_t> encoded(256 * 1024);
+            size_t out_len = encoded.size();
+            const int rc = enc_cb(pcm.data(), n, 16000,
+                                  encoded.data(), &out_len, enc_userdata);
+            if (rc == 0 && out_len > 0 && out_len <= encoded.size()) {
+                encoded_clip.codec     = enc_codec;
+                encoded_clip.bytes_b64 = base64_standard(encoded.data(), out_len);
+                encoded_clip_ptr       = &encoded_clip;
+            }
+            // encoder failure → leave encoded_clip_ptr null →
+            // placeholder ships. envelope build continues; the
+            // forwarder still dispatches.
+        }
+    }
 
     // Sampling RNG (Phase 4f). One per dispatch invocation —
     // re-seeded from random_device so two evaluates on the same
@@ -714,7 +782,7 @@ void State::dispatch_envelopes(const std::string& result_json) {
                 promoted["evidence_grade"] = "EnclaveSigned";
                 const std::string promoted_str = promoted.dump();
                 envelope_json = build_envelope_unsigned(
-                    config_, promoted_str, valid_from, spec);
+                    config_, promoted_str, valid_from, spec, encoded_clip_ptr);
 
                 auto signer = [&](std::string_view canonical)
                     -> std::vector<uint8_t> {
@@ -756,7 +824,7 @@ void State::dispatch_envelopes(const std::string& result_json) {
         if (!hw_signed) {
             try {
                 envelope_json = build_envelope_unsigned(
-                    config_, result_json, valid_from, spec);
+                    config_, result_json, valid_from, spec, encoded_clip_ptr);
                 if (sign) {
                     envelope_json = sign_envelope_eddsa_jcs(
                         envelope_json, snap_key, snap_vm, valid_from);

@@ -78,6 +78,38 @@ std::string base64url_no_pad(const uint8_t* bytes, size_t len) {
     return out;
 }
 
+std::string base64_standard(const uint8_t* bytes, size_t len) {
+    static constexpr char kAlphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((len + 2) / 3) * 4);
+    size_t i = 0;
+    while (i + 3 <= len) {
+        const unsigned a = bytes[i];
+        const unsigned b = bytes[i + 1];
+        const unsigned c = bytes[i + 2];
+        out += kAlphabet[(a >> 2) & 0x3f];
+        out += kAlphabet[((a << 4) | (b >> 4)) & 0x3f];
+        out += kAlphabet[((b << 2) | (c >> 6)) & 0x3f];
+        out += kAlphabet[c & 0x3f];
+        i += 3;
+    }
+    if (i < len) {
+        const unsigned a = bytes[i];
+        const unsigned b = (i + 1 < len) ? bytes[i + 1] : 0;
+        out += kAlphabet[(a >> 2) & 0x3f];
+        out += kAlphabet[((a << 4) | (b >> 4)) & 0x3f];
+        if (i + 1 < len) {
+            out += kAlphabet[(b << 2) & 0x3f];
+            out += '=';
+        } else {
+            out += '=';
+            out += '=';
+        }
+    }
+    return out;
+}
+
 std::string jcs_canonicalize(const std::string& json_text) {
     auto j = json::parse(json_text);
     sort_keys_recursive(j);
