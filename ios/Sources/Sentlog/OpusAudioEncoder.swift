@@ -128,9 +128,8 @@ public enum OpusAudioEncoder {
             if let err { throw err }
             let pktCount = Int(outBuf.packetCount)
             let byteCount = Int(outBuf.byteLength)
-            if pktCount > 0 && byteCount > 0,
-               let data = outBuf.data.assumingMemoryBound(to: UInt8.self) as UnsafePointer<UInt8>? {
-                encoded.append(data, count: byteCount)
+            if pktCount > 0 && byteCount > 0 {
+                encoded.append(UnsafePointer(outBuf.data), count: byteCount)
             }
             if status == .endOfStream || status == .error { break }
             if pktCount == 0 { break }
@@ -139,31 +138,3 @@ public enum OpusAudioEncoder {
     }
 }
 
-// Internal bridge: a strongly-typed entry that
-// `OpusAudioEncoder.install` calls. Lives next to Sentlog.swift's
-// other set_* helpers so the C ABI call site is uniform.
-internal extension Sentlog {
-    static func installAudioEncoder(
-        cb: sentlog_audio_encoder_cb_t?, codecName: String?
-    ) throws {
-        // Reach into the existing setHardwareSigner-style lock dance
-        // by piggybacking on a thin C-ABI call. Encoder has no
-        // userdata box (the closure captures nothing), so no
-        // Unmanaged retain/release pair is needed.
-        let h = try { () throws -> OpaquePointer in
-            // Reuse the stateLock+requireHandle pattern via a
-            // narrow wrapper to keep the install API symmetric with
-            // setSigningKey / setHardwareSigner.
-            return try acquireHandle()
-        }()
-        let status: sentlog_status_t
-        if let cb {
-            status = (codecName ?? "opus").withCString { c in
-                sentlog_set_audio_encoder(h, cb, nil, c)
-            }
-        } else {
-            status = sentlog_set_audio_encoder(h, nil, nil, nil)
-        }
-        try NativeBridge.mustSucceed(status, "installAudioEncoder")
-    }
-}
