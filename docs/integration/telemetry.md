@@ -101,9 +101,10 @@ failed.
   "fell_back_to": "software_ed25519" }
 ```
 
-Emitted when the hardware-signer callback returns failure AND
-`hardware_signing_required` is false (so the SDK fell back to the
-software path). When `hardware_signing_required` is true the
+Emitted when `use_hardware_signing` is true, the hardware-signer
+callback returns failure (`signer_call_failed`) or none is registered
+(`signer_not_registered`), AND `hardware_signing_required` is false
+(so the SDK fell back to the software path). When `hardware_signing_required` is true the
 envelope is dropped instead — see the corresponding `ForwarderOutcome`.
 
 ### `ModelLoadError`, `PermissionDenied`, `TsaRequestFailed`

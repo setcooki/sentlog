@@ -122,9 +122,9 @@ void on_update(sentlog_status_t status,
         env->CallVoidMethod(cb->ref, cb->method,
                             static_cast<jint>(status), js);
         if (js != nullptr) env->DeleteLocalRef(js);
-        env->DeleteGlobalRef(cb->ref);
+        // nativeCheckForUpdates owns cb and frees it after the call;
+        // the C ABI skips this callback on early-return errors.
     });
-    delete cb;
 }
 
 void on_telemetry(const char* event_json, void* userdata) {

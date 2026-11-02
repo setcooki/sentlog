@@ -163,7 +163,8 @@ SDK accepts both cryptosuites.
 
 ## Fallback behaviour
 
-If your signer returns `nil` / `null` (Secure Enclave unavailable on
+If `useHardwareSigning` is on and no signer is registered, or your
+signer returns `nil` / `null` (Secure Enclave unavailable on
 simulator, biometric prompt denied, etc.):
 
 - `SentlogConfig.hardwareSigningRequired = false` (default) — the SDK

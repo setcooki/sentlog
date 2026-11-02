@@ -453,9 +453,9 @@ void State::emit_pipeline_telemetry(const std::string& result_json,
 namespace {
 
 // Placeholder Sentlog-published manifest pubkeys baked into the build.
-// These zero arrays guarantee verification fails closed against any
-// real-world manifest — Sentlog has not yet published its manifest
-// signing infrastructure. Integrators that want to ship OTA today
+// Verification fails closed against these zero arrays because
+// ed25519_verify_detached rejects small-order keys — Sentlog has not
+// yet published its manifest signing infrastructure. Integrators that want to ship OTA today
 // override `manifest_url` + `manifest_pubkeys` in SentlogConfig.
 //
 // When Sentlog publishes the v1.0 manifest infra, the real pubkeys
@@ -838,21 +838,23 @@ void State::dispatch_envelopes(const std::string& result_json,
             } catch (...) {
                 hw_signed = false;
             }
+        }
 
-            if (!hw_signed) {
-                // Hardware signing failed. Required = drop; otherwise
-                // fall back to software signing with a telemetry event
-                // so integrators can detect the silent fallback.
-                if (config_.hardware_signing_required) {
-                    emit_skip(fw.name, "hardware_signing_required_failed");
-                    continue;
-                }
-                json ev;
-                ev["type"]         = "HardwareSigningUnavailable";
-                ev["reason"]       = "signer_call_failed";
-                ev["fell_back_to"] = "software_ed25519";
-                emit_telemetry(ev.dump());
+        if (config_.use_hardware_signing && !hw_signed) {
+            // Hardware signing failed or no signer is registered.
+            // Required = drop; otherwise fall back to software signing
+            // with a telemetry event so integrators can detect the
+            // silent fallback.
+            if (config_.hardware_signing_required) {
+                emit_skip(fw.name, "hardware_signing_required_failed");
+                continue;
             }
+            json ev;
+            ev["type"]         = "HardwareSigningUnavailable";
+            ev["reason"]       = try_hw ? "signer_call_failed"
+                                        : "signer_not_registered";
+            ev["fell_back_to"] = "software_ed25519";
+            emit_telemetry(ev.dump());
         }
 
         if (!hw_signed) {
