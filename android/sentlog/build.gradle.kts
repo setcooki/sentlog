@@ -1,12 +1,11 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
 }
 
 android {
     namespace = "me.cooki.sentlog"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         // PCM_FLOAT capture requires API 23; minSdk 24 keeps us above
@@ -70,9 +69,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 
     sourceSets["main"].kotlin.srcDir("src/main/kotlin")
     sourceSets["test"].kotlin.srcDir("src/test/kotlin")
