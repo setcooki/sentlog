@@ -59,10 +59,9 @@ on destinations.
 
 ## Status
 
-**Pre-Phase-0.** The repository currently contains only the planning
-documents. No source code, build system, models, or sample apps exist
-yet. Phase 0 (foundations) and the 16-week MVP to v1.0 are documented
-in [docs/rollout-plan.md](docs/rollout-plan.md).
+**Pre-v1.0.** Phases 0 through 7.5 (architecture pass) have shipped;
+see the notice above for what that does and does not mean. What is
+left before v1.0 is tracked in [docs/rollout-plan.md](docs/rollout-plan.md).
 
 ## Documentation
 
@@ -81,7 +80,7 @@ Three documents cover what Sentlog is, how it works, and how it ships:
 
 [CLAUDE.md](CLAUDE.md) covers conventions for AI-coded contributions.
 
-## Planned repository structure
+## Repository structure
 
 Full layout in
 [docs/technical-specification.md §2](docs/technical-specification.md#2-repository-layout).
@@ -95,7 +94,7 @@ sentlog/
 ├── CLAUDE.md              # AI-coded contribution guidelines
 ├── shared/                # C++17 core — narrow C ABI, heavily tested
 ├── android/               # AAR (Kotlin + JNI)
-├── ios/                   # XCFramework (Swift + C interop)
+├── ios/                   # Swift package (Swift + C interop)
 ├── rn/                    # @sentlog/react-native
 ├── capacitor/             # @sentlog/capacitor
 ├── models/                # training + quantisation pipelines (not bundled)
@@ -145,9 +144,8 @@ sentlog/
 
 ## Status snapshot
 
-- Documentation phase complete.
-- Phase 0 not yet started.
-- Open items for product and Phase 0 engineering gates listed in
+- Phases 0 through 7.5 shipped; ≥72 h soak and the v1.0 cut still open.
+- Open items listed in
   [docs/rollout-plan.md §5](docs/rollout-plan.md#5-open-items).
 
 ## Support
