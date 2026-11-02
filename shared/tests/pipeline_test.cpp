@@ -633,6 +633,7 @@ TEST(PipelineTest, DirectionMatchesTargetPhraseExactly) {
 
     const char* t = R"({"text":"Please confirm your name.","language":"en","confidence":0.9})";
     ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+    ASSERT_EQ(sentlog_push_liveness_result(h, 0.9f, 0.0f, 0.0f), SENTLOG_OK);
 
     Capture cap;
     ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
@@ -641,9 +642,88 @@ TEST(PipelineTest, DirectionMatchesTargetPhraseExactly) {
     EXPECT_FLOAT_EQ(j["transcript"]["target_match"].get<float>(), 1.0f);
     EXPECT_FLOAT_EQ(j["direction"].get<float>(),                  1.0f);
     EXPECT_TRUE(j["thresholds_met"].get<bool>())
-        << "direction (1.0) >= threshold (0.85) should mark thresholds_met";
+        << "every score clearing its threshold should mark thresholds_met";
 
     sentlog_destroy(h);
+}
+
+namespace {
+
+// Runs an exact-phrase capture, which clears direction_threshold, and
+// returns thresholds_met. `liveness` < 0 skips pushing a liveness result.
+bool thresholds_met_for(const std::string& extra_config,
+                        const std::vector<float>& audio,
+                        float liveness) {
+    const std::string config =
+        R"({"issuer": "did:example:integrator",
+            "min_duration_ms": 500,
+            "target_phrase": "please confirm your name",)" + extra_config + "}";
+    sentlog_status_t s;
+    auto* h = sentlog_create(config.c_str(), nullptr, nullptr, &s);
+    EXPECT_NE(h, nullptr);
+    EXPECT_EQ(sentlog_start_capture(h), SENTLOG_OK);
+    sentlog_push_audio_frame(h, audio.data(), audio.size());
+    EXPECT_EQ(sentlog_push_transcript(
+                  h, R"({"text":"please confirm your name","language":"en","confidence":0.9})"),
+              SENTLOG_OK);
+    if (liveness >= 0.0f) {
+        EXPECT_EQ(sentlog_push_liveness_result(h, liveness, 0.0f, 0.0f),
+                  SENTLOG_OK);
+    }
+    Capture cap;
+    EXPECT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
+    sentlog_destroy(h);
+    return json::parse(cap.result_json)["thresholds_met"].get<bool>();
+}
+
+}  // namespace
+
+TEST(PipelineTest, ThresholdsMetBaselinePasses) {
+    EXPECT_TRUE(thresholds_met_for(R"("min_confidence": 0.6)",
+                                   make_speech_2s(), 0.9f));
+}
+
+TEST(PipelineTest, ThresholdsMetFailsOnLowLiveness) {
+    EXPECT_FALSE(thresholds_met_for(R"("min_confidence": 0.6)",
+                                    make_speech_2s(), 0.01f));
+}
+
+TEST(PipelineTest, ThresholdsMetFailsOnPlaceholderLiveness) {
+    // The 0.5 placeholder clears this threshold numerically but no
+    // model produced it.
+    EXPECT_FALSE(thresholds_met_for(R"("liveness_threshold": 0.3)",
+                                    make_speech_2s(), -1.0f));
+}
+
+TEST(PipelineTest, ThresholdsMetFailsOnLowEngagement) {
+    // Gentle amplitude modulation counts as speech but scores low on
+    // prosody. The first check shows engagement alone decides it.
+    std::vector<float> flat_speech(2 * kSampleRateHz);
+    for (size_t i = 0; i < flat_speech.size(); ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(kSampleRateHz);
+        const float env = 0.7f + 0.3f * std::sin(2.0f * kPi * 4.0f * t);
+        flat_speech[i] = 0.15f * env * (
+            std::sin(2.0f * kPi *  300.0f * t) +
+            std::sin(2.0f * kPi *  700.0f * t) * 0.6f +
+            std::sin(2.0f * kPi * 1500.0f * t) * 0.3f);
+    }
+    EXPECT_TRUE(thresholds_met_for(R"("engagement_threshold": 0.0)",
+                                   flat_speech, 0.9f));
+    EXPECT_FALSE(thresholds_met_for(R"("engagement_threshold": 0.5)",
+                                    flat_speech, 0.9f));
+}
+
+TEST(PipelineTest, ThresholdsMetFailsOnPlaceholderEngagement) {
+    // Silence gives no prosody, so engagement is the 0.65 placeholder.
+    // min_confidence 0 keeps that the only failing check.
+    const std::vector<float> silence(32000, 0.0f);
+    EXPECT_FALSE(thresholds_met_for(
+        R"("engagement_threshold": 0.1, "min_confidence": 0.0)", silence, 0.9f));
+}
+
+TEST(PipelineTest, ThresholdsMetFailsOnLowConfidence) {
+    EXPECT_FALSE(thresholds_met_for(R"("min_confidence": 0.9)",
+                                    make_speech_2s(), 0.9f));
 }
 
 TEST(PipelineTest, DirectionPartialMatchScoresBelowOne) {
@@ -733,6 +813,7 @@ TEST(PipelineTest, ThresholdsMetHonorsConfiguredThreshold) {
     // Small typo — should still be above 0.85.
     const char* t = R"({"text":"please confirm your nme","language":"en","confidence":0.9})";
     ASSERT_EQ(sentlog_push_transcript(h, t), SENTLOG_OK);
+    ASSERT_EQ(sentlog_push_liveness_result(h, 0.9f, 0.0f, 0.0f), SENTLOG_OK);
 
     Capture cap;
     ASSERT_EQ(sentlog_evaluate(h, &on_result, &cap), SENTLOG_OK);
