@@ -40,11 +40,15 @@ jobs:
 
       - name: Configure
         run: |
-          flags="-stdlib=libc++ -nostdinc++ -isystem $RUNNER_TEMP/libcxx/include/c++/v1"
-          link="-L$RUNNER_TEMP/libcxx/lib -Wl,-rpath,$RUNNER_TEMP/libcxx/lib"
+          # In the flags too: CMake's compiler check links against the
+          # instrumented libc++ before the project adds its own options.
+          msan="-fsanitize=memory -fsanitize-memory-track-origins"
+          flags="$msan -stdlib=libc++ -nostdinc++ -isystem $RUNNER_TEMP/libcxx/include/c++/v1"
+          link="-fsanitize=memory -stdlib=libc++ -L$RUNNER_TEMP/libcxx/lib -Wl,-rpath,$RUNNER_TEMP/libcxx/lib"
           cmake -S shared -B shared/build -G Ninja \
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="$msan" \
             -DCMAKE_CXX_FLAGS="$flags" \
             -DCMAKE_EXE_LINKER_FLAGS="$link" \
             -DSENTLOG_ENABLE_MSAN=ON
