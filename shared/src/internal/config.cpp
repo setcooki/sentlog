@@ -396,7 +396,8 @@ sentlog_status_t parse_config(const std::string& json_text,
     if (!ok) return SENTLOG_ERR_INVALID_CONFIG;
 
     // Cross-field validation.
-    if (cfg.min_duration_ms >= cfg.max_duration_ms) {
+    // The upper bound is the audio ring: 2^20 samples at 16 kHz.
+    if (cfg.min_duration_ms >= cfg.max_duration_ms || cfg.max_duration_ms > 65536) {
         if (error_field != nullptr) *error_field = "max_duration_ms";
         return SENTLOG_ERR_INVALID_CONFIG;
     }

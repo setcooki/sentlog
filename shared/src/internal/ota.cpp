@@ -145,6 +145,15 @@ ManifestVerifyStatus parse_and_verify_manifest(
         return ManifestVerifyStatus::MissingFields;
     }
 
+    // Canonicalizing recurses and runs before the signature check, so
+    // don't let unverified input choose the depth. The schema is flat.
+    for (const auto& field : m) {
+        if (field.is_structured()) return ManifestVerifyStatus::MissingFields;
+    }
+
+    // Claimed and unverified: for failure telemetry only.
+    out.manifest_version = m["manifest_version"].get<std::string>();
+
     if (m["schema_version"].get<std::string>() != kManifestSchemaSupported) {
         return ManifestVerifyStatus::UnsupportedSchemaVersion;
     }
@@ -170,7 +179,6 @@ ManifestVerifyStatus parse_and_verify_manifest(
     }
 
     out.schema_version   = m["schema_version"].get<std::string>();
-    out.manifest_version = m["manifest_version"].get<std::string>();
     out.bundle_url       = m["bundle_url"].get<std::string>();
     out.bundle_sha256    = m["bundle_sha256"].get<std::string>();
     out.bundle_size      = m["bundle_size"].get<int64_t>();

@@ -273,6 +273,10 @@ export interface UpdateResult {
     update_found:     boolean;
     previous_version: string;
     new_version?:     string;
+    bundle_url?:      string;   // set with new_version; signature-verified
+    bundle_sha256?:   string;
+    bundle_size?:     number;
+    issued_at_ms?:    number;
     applied:          boolean;
     error?:           string;
 }
@@ -290,7 +294,7 @@ export type TelemetryEvent =
     | { type: "ModelLoadError";            model: string; reason: string }
     | { type: "PermissionDenied";          permission: PermissionKind }
     | { type: "CaptureAborted";            reason: string }
-    | { type: "HardwareSigningUnavailable"; reason: string; fell_back_to: "software_ed25519" }
+    | { type: "HardwareSigningUnavailable"; reason: string; fell_back_to: "software_ed25519" | "none" }
     | { type: "TsaRequestFailed";          tsa_url: string; reason: string };
 
 // ----- forwarder dispatcher --------------------------------------

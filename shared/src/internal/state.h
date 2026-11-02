@@ -84,9 +84,13 @@ struct PushedFaceFrame {
     std::string dominant_fau;  // CSV, may be empty
 };
 
-// 30 seconds of 16 kHz audio = 480 000 samples. Round up to 524 288
-// (2^19) for the power-of-two ring buffer requirement.
-constexpr size_t kRingBufferCapacitySamples = 524288;
+// 2^20 samples at 16 kHz = 65.536 s, the power of two that covers the
+// 60 s default max_duration_ms. config.cpp rejects anything longer.
+constexpr size_t kRingBufferCapacitySamples = 1048576;
+
+// One frame per 10 ms for the longest capture. Further frames are
+// dropped, like kMaxFaceFrames.
+constexpr size_t kMaxVadFrames = 6554;
 
 enum class LifecyclePhase : int {
     Idle       = 0,

@@ -173,7 +173,11 @@ sentlog_status_t State::push_audio(const float* samples, size_t num_samples) {
         // checks before pushing.
         return SENTLOG_ERR_INVALID_STATE;
     }
-    ring_.write(samples, num_samples);
+    // Enforce max_duration_ms. available() only grows during a capture
+    // because nothing consumes the ring until evaluate.
+    const size_t limit = static_cast<size_t>(config_.max_duration_ms) * 16;
+    const size_t held  = ring_.available();
+    ring_.write(samples, held < limit ? std::min(num_samples, limit - held) : 0);
     return SENTLOG_OK;
 }
 
@@ -183,9 +187,10 @@ sentlog_status_t State::push_vad_frame(size_t start_sample,
     if (phase() != LifecyclePhase::Capturing) {
         return SENTLOG_ERR_INVALID_STATE;
     }
-    if (probability < 0.0f) probability = 0.0f;
+    if (!(probability >= 0.0f)) probability = 0.0f;  // also catches NaN
     if (probability > 1.0f) probability = 1.0f;
     std::lock_guard<std::mutex> lock(vad_mutex_);
+    if (pushed_vad_frames_.size() >= kMaxVadFrames) return SENTLOG_OK;
     pushed_vad_frames_.push_back({start_sample, num_samples, probability});
     return SENTLOG_OK;
 }
@@ -202,7 +207,7 @@ sentlog_status_t State::push_liveness_result(float score,
         return SENTLOG_ERR_INVALID_STATE;
     }
     auto clamp = [](float v) {
-        if (v < 0.0f) return 0.0f;
+        if (!(v >= 0.0f)) return 0.0f;  // also catches NaN
         if (v > 1.0f) return 1.0f;
         return v;
     };
@@ -313,7 +318,7 @@ sentlog_status_t State::push_face_frame(int64_t timestamp_ns,
         return SENTLOG_ERR_INVALID_STATE;
     }
     auto clamp = [](float v, float lo, float hi) {
-        if (v < lo) return lo;
+        if (!(v >= lo)) return lo;  // also catches NaN
         if (v > hi) return hi;
         return v;
     };
@@ -470,6 +475,43 @@ int64_t now_unix_ms() noexcept {
     return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
 }
 
+// Parses "MAJOR.MINOR.PATCH" with an optional "-prerelease". False if
+// the text doesn't have that shape.
+bool parse_version(const std::string& text,
+                   std::array<uint64_t, 3>* numbers,
+                   std::string* prerelease) {
+    const size_t dash = text.find('-');
+    const std::string core = text.substr(0, dash);
+    *prerelease = dash == std::string::npos ? "" : text.substr(dash + 1);
+    size_t pos = 0;
+    for (size_t i = 0; i < numbers->size(); ++i) {
+        const size_t end = core.find('.', pos);
+        if ((i == 2) != (end == std::string::npos)) return false;
+        const std::string part = core.substr(pos, end == std::string::npos ? end : end - pos);
+        if (part.empty() || part.size() > 18 ||
+            part.find_first_not_of("0123456789") != std::string::npos) {
+            return false;
+        }
+        (*numbers)[i] = std::stoull(part);
+        pos = end + 1;
+    }
+    return true;
+}
+
+// True only when `candidate` is strictly newer, so a replayed older
+// manifest or an unparseable version is never offered as an update.
+// Prereleases sort below their release, and otherwise by plain text.
+bool is_newer_version(const std::string& candidate, const std::string& current) {
+    std::array<uint64_t, 3> a{}, b{};
+    std::string a_pre, b_pre;
+    if (!parse_version(candidate, &a, &a_pre) || !parse_version(current, &b, &b_pre)) {
+        return false;
+    }
+    if (a != b) return a > b;
+    if (a_pre.empty() || b_pre.empty()) return a_pre.empty() && !b_pre.empty();
+    return a_pre > b_pre;
+}
+
 const char* verify_error_string(ManifestVerifyStatus s) noexcept {
     switch (s) {
         case ManifestVerifyStatus::OK:                       return "ok";
@@ -518,22 +560,18 @@ sentlog_status_t State::check_for_updates(const uint8_t* manifest_bytes,
         out["applied"]      = false;
         out["error"]        = err_str;
         *update_json_out    = out.dump();
-        // ManifestVerifyFailed telemetry per spec §3.2. The optional
-        // attempted_version is the parsed manifest_version when the
-        // JSON shape was valid enough to extract it; omitted on parse
-        // failure so decoders that distinguish present-vs-empty see
-        // an honest signal.
+        // ManifestVerifyFailed telemetry per spec §3.2. attempted_version
+        // is the claimed manifest_version, empty when the JSON shape
+        // wasn't valid enough to extract it. It's unverified, so cap it.
         json ev;
         ev["type"]   = "ManifestVerifyFailed";
         ev["reason"] = err_str;
-        if (!manifest.manifest_version.empty()) {
-            ev["attempted_version"] = manifest.manifest_version;
-        }
-        emit_telemetry(ev.dump());
+        ev["attempted_version"] = manifest.manifest_version.substr(0, 64);
+        emit_telemetry(ev.dump(-1, ' ', false, json::error_handler_t::replace));
         return SENTLOG_ERR_MANIFEST_VERIFY;
     }
 
-    const bool is_newer = manifest.manifest_version != previous_version;
+    const bool is_newer = is_newer_version(manifest.manifest_version, previous_version);
     out["update_found"] = is_newer;
     // `applied` stays false at this layer — the C++ core verifies the
     // manifest but does not own the bundle download or model swap.
@@ -541,7 +579,11 @@ sentlog_status_t State::check_for_updates(const uint8_t* manifest_bytes,
     // the bundle (Phase 7.x bundle-apply work, not in 7b-i).
     out["applied"] = false;
     if (is_newer) {
-        out["new_version"] = manifest.manifest_version;
+        out["new_version"]   = manifest.manifest_version;
+        out["bundle_url"]    = manifest.bundle_url;
+        out["bundle_sha256"] = manifest.bundle_sha256;
+        out["bundle_size"]   = manifest.bundle_size;
+        out["issued_at_ms"]  = manifest.issued_at_ms;
     }
     *update_json_out = out.dump();
     return SENTLOG_OK;
@@ -853,7 +895,7 @@ void State::dispatch_envelopes(const std::string& result_json,
             ev["type"]         = "HardwareSigningUnavailable";
             ev["reason"]       = try_hw ? "signer_call_failed"
                                         : "signer_not_registered";
-            ev["fell_back_to"] = "software_ed25519";
+            ev["fell_back_to"] = sign ? "software_ed25519" : "none";
             emit_telemetry(ev.dump());
         }
 

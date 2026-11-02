@@ -21,8 +21,9 @@ if(SENTLOG_ENABLE_ASAN)
     add_link_options(-fsanitize=address)
 endif()
 if(SENTLOG_ENABLE_UBSAN)
-    add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer)
-    add_link_options(-fsanitize=undefined)
+    # no-recover: a violation has to fail the test run, not just log.
+    add_compile_options(-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=undefined -fno-sanitize-recover=all)
 endif()
 if(SENTLOG_ENABLE_MSAN)
     add_compile_options(-fsanitize=memory -fno-omit-frame-pointer)
@@ -82,4 +83,11 @@ set_source_files_properties(
 if(SENTLOG_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+if(SENTLOG_ENABLE_UBSAN)
+    # Vendored tweetnacl left-shifts negative values by design (well
+    # defined on every target and from C++20). Everything else stays on.
+    set_property(SOURCE external/tweetnacl/tweetnacl.c
+        APPEND PROPERTY COMPILE_OPTIONS "-fno-sanitize=shift")
 endif()

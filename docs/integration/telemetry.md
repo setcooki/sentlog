@@ -104,7 +104,9 @@ failed.
 Emitted when `use_hardware_signing` is true, the hardware-signer
 callback returns failure (`signer_call_failed`) or none is registered
 (`signer_not_registered`), AND `hardware_signing_required` is false
-(so the SDK fell back to the software path). When `hardware_signing_required` is true the
+(so the SDK fell back to the software path). `fell_back_to` is
+`software_ed25519`, or `none` when no software key is set and the
+envelope ships unsigned. When `hardware_signing_required` is true the
 envelope is dropped instead — see the corresponding `ForwarderOutcome`.
 
 ### `ModelLoadError`, `PermissionDenied`, `TsaRequestFailed`
