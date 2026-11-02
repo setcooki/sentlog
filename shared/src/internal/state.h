@@ -7,7 +7,9 @@
 //
 // All public methods are documented for the thread they expect to be
 // called on. The state machine transition functions are NOT
-// thread-safe; the C ABI serialises lifecycle calls. The audio push
+// thread-safe, and the C ABI takes no locks: the platform bindings
+// hold their own lock around lifecycle calls, and direct C callers
+// must serialise them. The audio push
 // path (push_audio) is callable from the producer (real-time) thread
 // in parallel with everything else.
 

@@ -56,7 +56,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 
 # --- types --------------------------------------------------------
@@ -188,7 +188,7 @@ def aggregate(outcomes: Iterable[Outcome]) -> dict[str, FamilyStats]:
     return by_family
 
 
-def far_frr(outcomes: list[Outcome], threshold: float) -> tuple[float, float]:
+def far_frr(outcomes: list[Outcome], threshold: float) -> tuple[Optional[float], Optional[float]]:
     """False-accept rate (FAR) = spoof clips that scored >= threshold.
     False-reject rate (FRR) = genuine clips that scored < threshold."""
     spoof_accepted = 0
@@ -206,19 +206,22 @@ def far_frr(outcomes: list[Outcome], threshold: float) -> tuple[float, float]:
             spoof_total += 1
             if o.liveness_score >= threshold:
                 spoof_accepted += 1
-    far = (spoof_accepted   / spoof_total)   if spoof_total   else 0.0
-    frr = (genuine_rejected / genuine_total) if genuine_total else 0.0
+    # None, not 0.0: no scored clips means no measurement, not a perfect one.
+    far = (spoof_accepted   / spoof_total)   if spoof_total   else None
+    frr = (genuine_rejected / genuine_total) if genuine_total else None
     return far, frr
 
 
 # --- report -------------------------------------------------------
 
 def render_report(per_family: dict[str, FamilyStats],
-                  far: float, frr: float, threshold: float) -> str:
+                  far: Optional[float], frr: Optional[float], threshold: float) -> str:
     out: list[str] = []
     out.append(f"# Sentlog benchmark report\n")
-    out.append(f"FAR @ liveness ≥ {threshold:.2f}: **{far*100:.2f}%**  ")
-    out.append(f"FRR @ liveness < {threshold:.2f}: **{frr*100:.2f}%**\n")
+    def pct(rate: Optional[float]) -> str:
+        return "n/a (no scored clips)" if rate is None else f"{rate*100:.2f}%"
+    out.append(f"FAR @ liveness ≥ {threshold:.2f}: **{pct(far)}**  ")
+    out.append(f"FRR @ liveness < {threshold:.2f}: **{pct(frr)}**\n")
     out.append("## Per-family\n")
     for family, s in sorted(per_family.items()):
         out.append(f"### {family}  (n={s.n}, errors={s.n_errors})\n")
@@ -237,7 +240,7 @@ def render_report(per_family: dict[str, FamilyStats],
 
 
 def report_as_json(per_family: dict[str, FamilyStats],
-                   far: float, frr: float, threshold: float) -> dict:
+                   far: Optional[float], frr: Optional[float], threshold: float) -> dict:
     return {
         "threshold": threshold,
         "far": far,
@@ -306,6 +309,10 @@ def main(argv: list[str]) -> int:
 
     if n_errors > args.max_errors:
         print(f"\n{n_errors} runner errors exceeded --max-errors={args.max_errors}",
+              file=sys.stderr)
+        return 2
+    if far is None or frr is None:
+        print("\nno scored clips for at least one class, so FAR/FRR weren't measured",
               file=sys.stderr)
         return 2
     return 0

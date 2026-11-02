@@ -164,6 +164,18 @@ def test_malformed() -> None:
             check(True, f"{label} rejected")
 
 
+def test_reference_consumer() -> None:
+    # The consumer's own self-test is stdlib-only, so its proof path runs here.
+    sys.path.insert(0, str(HERE.parent / "reference-consumer"))
+    from server import verify_proof
+
+    envelope = parse_envelope(FIXTURE.read_text(encoding="utf-8"))
+    check(verify_proof(envelope, FIXTURE_PUBKEY.hex())[0], "reference consumer accepts the fixture")
+    envelope["issuer"] = "did:example:other"
+    check(not verify_proof(envelope, FIXTURE_PUBKEY.hex())[0], "reference consumer rejects tampering")
+    check(not verify_proof(envelope, "zz")[0], "reference consumer rejects a bad key")
+
+
 def test_cli() -> None:
     run = lambda *args, **kw: subprocess.run(  # noqa: E731
         [sys.executable, str(HERE / "verify.py"), *args],
@@ -188,6 +200,7 @@ def main() -> int:
     test_w3c_vectors()
     test_cpp_fixture()
     test_malformed()
+    test_reference_consumer()
     test_cli()
     if failures:
         print(f"selftest FAILED: {len(failures)} check(s)", file=sys.stderr)

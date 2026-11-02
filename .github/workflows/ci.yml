@@ -208,6 +208,9 @@ jobs:
           test -f docs/rollout-plan.md
           echo "All required docs present."
 
+      - name: Check relative Markdown links
+        run: python3 tools/check-doc-links.py
+
   evidence-verifier:
     name: tools (evidence-verifier)
     runs-on: ubuntu-latest

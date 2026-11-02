@@ -31,6 +31,7 @@ add_executable(sentlog_tests
     tsa_provider_test.cpp
     device_attestation_test.cpp
     core_hardening_test.cpp
+    golden_test.cpp
 )
 target_link_libraries(sentlog_tests
     PRIVATE

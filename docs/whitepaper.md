@@ -152,7 +152,7 @@ layer* on which integrators build those things.
 ## 4. Open-Source Positioning
 
 Sentlog ships under MIT. There is no IP defense in the SDK — every
-model architecture used (AASIST-L, whisper, MediaPipe Face Mesh) is
+model architecture used (AASIST-L, whisper, Silero VAD) is
 publicly described, pretrained weights are public, libraries are
 open-source. Two components are homegrown MIT replacements where the
 canonical implementation's licence would compromise the SDK's
@@ -198,21 +198,20 @@ for end-customers.
                 │  Platform binding              │  thick — most logic
                 │  android/  Sentlog.kt          │  lives here:
                 │  ios/      Sentlog.swift       │  capture orchestration,
-                │  rn/       (npm)               │  retries, telemetry,
+                │  rn/       (npm)               │  telemetry,
                 │  capacitor/ (npm)              │  config validation,
                 │                                │  OTA fetch + verifier,
-                │                                │  motion / route / video
-                │                                │  capture, forwarder
-                │                                │  pipeline
+                │                                │  motion / route
+                │                                │  capture, ML inference
                 └────────────────┬───────────────┘
                                  │ C ABI (extern "C" — narrow)
                 ┌────────────────▼───────────────────────────────┐
                 │  shared/  C++17 core                            │  thin —
                 │   ├── capture/    ring buffer, framing          │  only what
-                │   ├── vad/        Silero wrapper                │  must be
-                │   ├── asr/        whisper.cpp wrapper           │  C++:
-                │   ├── prosody/    sentlog-prosody-v1 + probe   │  ML kernels,
-                │   ├── liveness/   AASIST-L wrapper              │  scoring,
+                │   ├── vad/        energy VAD fallback           │  must be
+                │   ├── asr/        transcript intake             │  C++:
+                │   ├── prosody/    sentlog-prosody-v1            │  orchestration,
+                │   ├── liveness/   liveness result intake        │  scoring,
                 │   ├── scoring/    score assembly                │  fingerprint,
                 │   ├── fingerprint/ sentlog-pcp-v1 hash          │  audio
                 │   └── config/     SentlogConfig validation      │  arithmetic
@@ -220,10 +219,9 @@ for end-customers.
                                  │
                 ┌────────────────▼───────────────────────────────┐
                 │  Platform runtimes                              │
-                │  iOS:     Core ML (whisper encoder + probes)    │
-                │           Vision (face mesh — affect mode)      │
-                │  Android: LiteRT + GPU/QNN delegates            │
-                │           ML Kit Face (face mesh — affect mode) │
+                │  iOS + Android: ONNX Runtime (VAD, liveness)    │
+                │                 whisper.cpp (ASR, CPU-only)     │
+                │  Face mesh:     integrator-supplied (affect)    │
                 └─────────────────────────────────────────────────┘
 
   Auxiliary inputs (multi-modal):
@@ -234,7 +232,8 @@ for end-customers.
 
   Output pipeline:
    SentlogResult ─► forwarders[0..n] ─► sinks (Http / Webhook / Queue / Callback)
-                                        with per-sink projection + retry + sampling
+                                        with per-sink projection + sampling;
+                                        delivery and retry in the integrator's dispatcher
 ```
 
 Detailed architectural decisions are in the [Technical
@@ -270,12 +269,16 @@ Play Integrity / AppAttest / DeviceCheck. The SDK never enforces; it
 reports `presence.integrity` ∈ [0,1] (or null). Integrators that care
 about device assurance enforce it themselves.
 
+Not implemented yet: `presence.integrity` is always null and
+`use_device_integrity` has no effect. Today a token the integrator pushes
+with `setDeviceAttestation` promotes `evidence_grade` to `DeviceAttested`.
+
 ### 6.4 Video affect — sentiment enrichment (opt-in)
 
 Video is positioned as a *sentiment* signal, not an anti-spoof
-signal. The SDK runs a lightweight face mesh (MediaPipe on Android,
-Vision on iOS), samples landmarks at 10–15 Hz during the utterance,
-and feeds a small affect head (FAU-based, or distilled affect models
+signal. The integrator runs a lightweight face mesh (typically MediaPipe
+on Android, Vision on iOS; neither is an SDK dependency), samples
+landmarks at 10–15 Hz during the utterance, and feeds a small affect head (FAU-based, or distilled affect models
 trained on RAVDESS / CREMA-D face channels). Output is `affect`
 (valence, arousal, dominant FAU) plus a contribution to
 `engagement.face_score`. Overall `engagement.score` ensembles voice
