@@ -758,11 +758,13 @@ const char* kConfigWithMotion =
 // per-axis variation around gravity on Y).
 void push_held_motion(sentlog_handle_t* h, size_t n, float sigma) {
     std::mt19937 rng(0xBEEF);
-    std::normal_distribution<float> jitter(0.0f, sigma);
+    // Scale a unit normal: normal_distribution requires stddev > 0, and
+    // callers pass sigma = 0 for a stationary device.
+    std::normal_distribution<float> jitter(0.0f, 1.0f);
     for (size_t i = 0; i < n; ++i) {
-        const float ax = jitter(rng);
-        const float ay = 9.81f + jitter(rng);  // gravity dominates Y
-        const float az = jitter(rng);
+        const float ax = sigma * jitter(rng);
+        const float ay = 9.81f + sigma * jitter(rng);  // gravity dominates Y
+        const float az = sigma * jitter(rng);
         sentlog_push_motion_frame(h,
             static_cast<int64_t>(i) * 10'000'000,  // 100 Hz spacing
             ax, ay, az, 0.0f, 0.0f, 0.0f);
