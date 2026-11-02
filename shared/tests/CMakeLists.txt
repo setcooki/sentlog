@@ -41,5 +41,9 @@ target_include_directories(sentlog_tests
             ${CMAKE_SOURCE_DIR}/external
 )
 
+target_compile_definitions(sentlog_tests
+    PRIVATE SENTLOG_REPO_ROOT="${CMAKE_SOURCE_DIR}/.."
+)
+
 include(GoogleTest)
 gtest_discover_tests(sentlog_tests)

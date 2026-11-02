@@ -71,9 +71,14 @@ std::string base64url_no_pad(const uint8_t* bytes, size_t len);
 /// envelope JSON.
 std::string base64_standard(const uint8_t* bytes, size_t len);
 
-/// Apply `eddsa-jcs-2022` to the unsigned envelope JSON: canonicalise
-/// per JCS, sign with Ed25519, attach the `proof` block, return the
-/// serialised signed envelope.
+/// The bytes a `*-jcs-*` Data Integrity proof signs:
+/// SHA-256(JCS(proof config)) || SHA-256(JCS(document)).
+std::string data_integrity_hash(const std::string& proof_config_json,
+                                const std::string& document_json);
+
+/// Apply `eddsa-jcs-2022` to the unsigned envelope JSON: sign
+/// data_integrity_hash with Ed25519, attach the `proof` block, return
+/// the serialised signed envelope. proofValue is multibase base58btc.
 ///
 /// `verification_method` is copied into proof.verificationMethod —
 /// typically a `did:key:` URI the verifier resolves to the public
@@ -84,17 +89,15 @@ std::string sign_envelope_eddsa_jcs(const std::string& unsigned_envelope_json,
                                     const std::string& verification_method,
                                     const std::string& created_iso8601_utc);
 
-/// Phase 7c hardware-signed proof. Same proof-options canonicalisation
-/// flow as sign_envelope_eddsa_jcs, but the signing step is delegated
-/// to a caller-supplied signer (callable taking the canonical bytes
-/// and returning the raw signature). Used for Secure Enclave
+/// Phase 7c hardware-signed proof. Same flow as
+/// sign_envelope_eddsa_jcs, but the signing step is delegated to a
+/// caller-supplied signer. Used for Secure Enclave
 /// (cryptosuite="ecdsa-jcs-2019") and Android KeyStore Ed25519
-/// (cryptosuite="eddsa-jcs-2022"). The signer's signature length is
-/// not constrained — ECDSA-P256 produces ≤72 bytes (ASN.1/DER) and
-/// Ed25519 is fixed 64.
+/// (cryptosuite="eddsa-jcs-2022"). ECDSA signers return ASN.1/DER,
+/// Ed25519 signers the fixed 64 bytes.
 ///
-/// Throws std::runtime_error on signer failure (empty signature
-/// returned); callers translate to fallback or skip per the
+/// Throws std::runtime_error on a malformed or empty signature;
+/// callers translate to fallback or skip per the
 /// hardware_signing_required policy.
 using HardwareSigner = std::function<std::vector<uint8_t>(std::string_view)>;
 

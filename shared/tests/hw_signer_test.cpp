@@ -52,8 +52,9 @@ const char* kRequiredConfig = R"({
   }]
 })";
 
-// Stub hardware signer — writes 64 bytes of 0x42 into the output
-// buffer. Successful, deterministic, easy to assert against.
+// Stub hardware signer — writes a DER ECDSA signature with
+// r = s = 32 bytes of 0x42. Successful, deterministic, easy to assert
+// against.
 struct StubSigner {
     std::atomic<int> calls{0};
     bool             fail{false};
@@ -65,9 +66,12 @@ int stub_signer_cb(const uint8_t* /*msg*/, size_t /*msg_len*/,
     auto* s = static_cast<StubSigner*>(userdata);
     s->calls.fetch_add(1);
     if (s->fail) return -1;
-    const size_t want = 64;
+    const size_t want = 70;
     if (*sig_len_inout < want) return -2;
     std::memset(sig_out, 0x42, want);
+    sig_out[0] = 0x30; sig_out[1] = 68;
+    sig_out[2] = 0x02; sig_out[3] = 32;
+    sig_out[36] = 0x02; sig_out[37] = 32;
     *sig_len_inout = want;
     return 0;
 }

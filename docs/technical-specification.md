@@ -523,7 +523,7 @@ model:
     "created":            "2026-05-22T12:34:56.789Z",
     "verificationMethod": "<integrator-supplied key id>",
     "proofPurpose":       "assertionMethod",
-    "proofValue":         "<base64url signature>"
+    "proofValue":         "z<base58btc signature>"
   },
   "tsa_timestamp": {                                 // optional — present only when TSA configured
     "tsa_url":         "https://tsa.example.com",

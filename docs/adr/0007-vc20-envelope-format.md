@@ -41,7 +41,7 @@ required structure:
     "created": "<ISO 8601>",
     "verificationMethod": "<integrator-supplied key id>",
     "proofPurpose": "assertionMethod",
-    "proofValue": "<base64url signature>"
+    "proofValue": "z<base58btc signature>"
   },
   "tsa_timestamp": { ... }              // optional, RFC 3161
 }

@@ -82,6 +82,33 @@ TEST(DeviceAttestationTest, AttestedTokenPromotesGradeAndAppears) {
     sentlog_destroy(h);
 }
 
+TEST(DeviceAttestationTest, FullPayloadReportsSameGradeAsSubject) {
+    const char* cfg = R"({
+      "issuer":"did:example:x",
+      "forwarders":[{"name":"a","projection":"Full",
+                     "sink":{"kind":"callback"}}]
+    })";
+    sentlog_status_t status = SENTLOG_OK;
+    sentlog_handle_t* h = sentlog_create(cfg, nullptr, nullptr, &status);
+    ASSERT_NE(h, nullptr);
+    const uint8_t token[] = {0x01, 0x02, 0x03};
+    ASSERT_EQ(sentlog_set_device_attestation(
+                  h, token, sizeof(token), "play_integrity"),
+              SENTLOG_OK);
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &dispatcher_cb, &dcap),
+              SENTLOG_OK);
+
+    run_one(h);
+
+    ASSERT_EQ(dcap.envelopes.size(), 1u);
+    const auto subject = json::parse(dcap.envelopes[0])["credentialSubject"];
+    EXPECT_EQ(subject["evidence_grade"].get<std::string>(), "DeviceAttested");
+    EXPECT_EQ(subject["payload"]["evidence_grade"].get<std::string>(),
+              "DeviceAttested");
+    sentlog_destroy(h);
+}
+
 TEST(DeviceAttestationTest, NoAttestationLeavesGradeUnattested) {
     sentlog_status_t status = SENTLOG_OK;
     sentlog_handle_t* h = sentlog_create(kCfg, nullptr, nullptr, &status);
@@ -145,10 +172,11 @@ TEST(DeviceAttestationTest, HwSignedKeepsEnclaveSignedDespiteAttestation) {
     // Hardware signer (always-success stub).
     auto hw_cb = [](const uint8_t*, size_t,
                     uint8_t* sig_out, size_t* sig_len, void*) -> int {
-        const uint8_t bytes[64] = {0x77};   // sentinel; rest zero
-        if (*sig_len < 64) return -1;
-        std::memcpy(sig_out, bytes, 64);
-        *sig_len = 64;
+        // DER ECDSA signature with r = s = 1.
+        const uint8_t bytes[] = {0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01};
+        if (*sig_len < sizeof(bytes)) return -1;
+        std::memcpy(sig_out, bytes, sizeof(bytes));
+        *sig_len = sizeof(bytes);
         return 0;
     };
     ASSERT_EQ(sentlog_set_hardware_signer(

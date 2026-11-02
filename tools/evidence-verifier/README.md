@@ -1,9 +1,9 @@
 # Sentlog evidence verifier
 
 Single-file Python reference verifier for the W3C VC 2.0 envelopes the
-SDK emits. Reads a signed envelope, re-canonicalises per RFC 8785
-JCS, and checks the `proof.proofValue` Ed25519 signature against an
-integrator-supplied public key.
+SDK emits. Reads a signed envelope and checks its `eddsa-jcs-2022` or
+`ecdsa-jcs-2019` Data Integrity proof against an integrator-supplied
+public key.
 
 This is the canonical tool integrators run to confirm that envelopes
 they receive are byte-identical to what the SDK signed — useful for
@@ -19,7 +19,7 @@ pip install -r requirements.txt
 ```
 
 Single dependency: [`cryptography`](https://cryptography.io) for the
-Ed25519 verify primitive.
+Ed25519 and ECDSA verify primitives.
 
 ## Run
 
@@ -27,10 +27,13 @@ Ed25519 verify primitive.
 python3 verify.py envelope.json <pubkey-hex>
 ```
 
-`<pubkey-hex>` is the 32-byte Ed25519 public key encoded as 64 hex
-chars. The bytes match what the SDK was handed at
-`sentlog_set_signing_key` time (the last 32 bytes of the 64-byte
-seed||pubkey concatenation).
+`<pubkey-hex>` is either:
+
+- a 32-byte Ed25519 public key as 64 hex chars. The bytes match what
+  the SDK was handed at `sentlog_set_signing_key` time (the last 32
+  bytes of the 64-byte seed||pubkey concatenation).
+- a P-256 public key as a SEC1 point (33 bytes compressed or 65 bytes
+  uncompressed), for hardware-signed envelopes.
 
 Stdin form:
 
@@ -49,43 +52,48 @@ Exit codes:
 
 ## What it checks
 
-- `proof.cryptosuite` is `eddsa-jcs-2022` (the Phase 4b ship). The
-  Phase 7 hardware path will emit `ecdsa-jcs-2019`; that needs a
-  second branch here when it lands.
-- `proof.proofValue` decodes as base64url-no-pad.
-- Re-canonicalises the envelope-without-proofValue per RFC 8785 JCS
-  using the same logic as `shared/src/internal/signing.cpp`'s
-  `jcs_canonicalize` so the byte stream matches what the SDK signed.
-- Calls `cryptography`'s Ed25519 verify primitive.
+- The envelope is strict JSON: no duplicate keys, no `NaN`.
+- `proof` has `type: DataIntegrityProof`,
+  `proofPurpose: assertionMethod`, a supported `cryptosuite`, and no
+  unknown fields. A `proof.@context` must be a prefix of the envelope's.
+- `proof.proofValue` is multibase base58btc and decodes to 64 bytes.
+- The signature verifies over the signing input below.
 
-## What it does NOT yet check
+## What it does NOT check
 
-- TSA timestamp (Phase 4h adds the block; the verifier will need
-  RFC 3161 TimeStampToken parsing then).
+- `evidence_grade`. A valid signature only shows that the key holder
+  made the claim, so confirm separately that the key is hardware-backed
+  before trusting `EnclaveSigned`.
+- `tsa_timestamp`. It's a sidecar added after signing, so the proof
+  doesn't cover it, and the RFC 3161 token isn't parsed.
+- The `device_attestation` token.
 - `did:key:` resolution for `proof.verificationMethod`. Today the
-  integrator passes the pubkey bytes directly; in a future chunk
-  the verifier will resolve well-known DID methods.
-- Hardware-backed `ecdsa-jcs-2019` envelopes (Phase 7).
+  integrator passes the pubkey bytes directly.
 - Envelope schema validity beyond the proof — that's
   `tools/reference-consumer/` territory.
 
 ## Algorithm reference
 
-The signing input per W3C Data Integrity §4.4 with
-`eddsa-jcs-2022`:
+Both suites follow the W3C
+[vc-di-eddsa](https://www.w3.org/TR/vc-di-eddsa/) and
+[vc-di-ecdsa](https://www.w3.org/TR/vc-di-ecdsa/) `jcs` algorithms, and
+the self-test runs their published test vectors:
 
-1. Take the envelope WITH the proof block but WITHOUT
-   `proof.proofValue`.
-2. Canonicalise with RFC 8785 JCS:
-   - object keys sorted lexicographically
-   - no insignificant whitespace
-   - canonical number/string formatting
-3. The signing input bytes are the UTF-8 encoding of that
-   canonical JSON.
-4. Verify the signature over those bytes with Ed25519 and the
-   integrator's public key.
+```
+signing_input = SHA-256(JCS(proof without proofValue))
+             || SHA-256(JCS(envelope without proof and tsa_timestamp))
+```
 
-The SDK side of this algorithm lives in
-`shared/src/internal/signing.cpp:sign_envelope_eddsa_jcs`. The two
-implementations must produce identical canonical bytes for the
-same logical envelope.
+`eddsa-jcs-2022` signs that with Ed25519. `ecdsa-jcs-2019` signs it with
+ECDSA P-256 and SHA-256, and `proofValue` carries the raw `r || s`.
+JCS is RFC 8785.
+
+## Updating the fixture
+
+`fixtures/cpp_signed_envelope.json` is produced by the C++ core. After
+an intentional format change, regenerate it from the test binary:
+
+```bash
+SENTLOG_UPDATE_FIXTURES=1 ./tests/sentlog_tests \
+  --gtest_filter='VerifierFixtureTest.*'
+```

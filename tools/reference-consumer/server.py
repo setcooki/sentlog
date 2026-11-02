@@ -6,7 +6,7 @@ Single-file, stdlib-only HTTP server the integrator (or our own
 integration tests) can point an HttpSink / WebhookSink at to verify
 the dispatch path end-to-end. Logs every received envelope, validates
 basic shape, optionally verifies the WebhookSink HMAC, optionally
-verifies the envelope's Ed25519 proof.
+verifies the envelope's Data Integrity proof.
 
 Usage:
     python3 server.py [--port 8080]
@@ -57,6 +57,7 @@ import json
 import signal
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Optional
 
 
@@ -106,48 +107,15 @@ def hmac_matches(received: str, expected: str) -> bool:
 # --- optional proof verification ----------------------------------
 
 def verify_proof(envelope: dict, pubkey_hex: str) -> tuple[bool, str]:
-    """Reuses the same eddsa-jcs-2022 path the standalone evidence-
-    verifier (tools/evidence-verifier/verify.py) implements. Imported
-    lazily so the server runs without cryptography installed when the
+    """Delegates to the standalone evidence verifier. Imported lazily
+    so the server runs without cryptography installed when the
     integrator doesn't ask for proof verification."""
-    try:
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-            Ed25519PublicKey,
-        )
-        from cryptography.exceptions import InvalidSignature
-    except ImportError:
-        return False, "cryptography not installed; pip install cryptography"
-
-    proof = envelope.get("proof")
-    if not isinstance(proof, dict):
-        return False, "no proof block"
-    if proof.get("cryptosuite") != "eddsa-jcs-2022":
-        return False, f"unsupported cryptosuite {proof.get('cryptosuite')!r}"
-    proof_value = proof.get("proofValue")
-    if not isinstance(proof_value, str) or not proof_value:
-        return False, "proofValue missing"
-
-    # base64url no-pad decode
-    import base64
-    pad = (-len(proof_value)) % 4
-    sig = base64.urlsafe_b64decode(proof_value + ("=" * pad))
-
-    # Reconstruct the signing input: envelope_without_proofValue
-    # canonicalised per JCS. The proof-options (everything in `proof`
-    # except `proofValue`) MUST be present during canonicalisation.
-    env_copy = json.loads(json.dumps(envelope))  # deep copy
-    proof_copy = env_copy["proof"]
-    proof_copy.pop("proofValue", None)
-    canonical = json.dumps(env_copy, sort_keys=True,
-                           separators=(",", ":")).encode("utf-8")
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "evidence-verifier"))
+    from verify import verify_envelope
 
     try:
-        pk = Ed25519PublicKey.from_public_bytes(bytes.fromhex(pubkey_hex))
-        pk.verify(sig, canonical)
-        return True, "ok"
-    except InvalidSignature:
-        return False, "signature does not verify"
-    except Exception as e:
+        return verify_envelope(envelope, bytes.fromhex(pubkey_hex))
+    except ValueError as e:
         return False, f"verify error: {e}"
 
 
