@@ -72,4 +72,30 @@ final class SentlogConfigSerializationTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SentlogConfig.self, from: encoded)
         XCTAssertEqual(cfg, decoded)
     }
+
+    func testDecodesPartialConfigWithDefaults() throws {
+        let json = #"""
+        {"issuer":"did:example:i","forwarders":[{"name":"a","projection":"Custom",
+         "sink":{"kind":"callback"},"custom_fields":["liveness.score"]}],
+         "scoring_weights":{"presence.motion":1.5}}
+        """#
+        let cfg = try JSONDecoder().decode(SentlogConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(cfg.issuer, "did:example:i")
+        XCTAssertEqual(cfg.livenessThreshold, 0.7)
+        XCTAssertEqual(cfg.maxDurationMs, 60_000)
+        XCTAssertEqual(cfg.forwarders[0].sampleRate, 1.0)
+        XCTAssertEqual(cfg.forwarders[0].customFields, ["liveness.score"])
+        XCTAssertEqual(cfg.scoringWeights, ["presence.motion": 1.5])
+    }
+
+    func testEmptyConfigDecodes() throws {
+        XCTAssertEqual(try JSONDecoder().decode(SentlogConfig.self, from: Data("{}".utf8)),
+                       SentlogConfig())
+    }
+
+    func testAbsentOptionalFieldsAreNotEncoded() throws {
+        let forwarder = Forwarder(name: "a", projection: .full, sink: .object([:]))
+        let text = String(decoding: try JSONEncoder().encode(forwarder), as: UTF8.self)
+        XCTAssertFalse(text.contains("custom_fields"), "core rejects it on non-Custom projections")
+    }
 }

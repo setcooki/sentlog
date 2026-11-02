@@ -168,7 +168,7 @@ class SentlogModule(private val reactContext: ReactApplicationContext)
     ) {
         val bytes = if (tokenBase64 != null) {
             try {
-                android.util.Base64.decode(tokenBase64, android.util.Base64.DEFAULT)
+                decodeBase64Strict(tokenBase64)
             } catch (e: IllegalArgumentException) {
                 return promise.reject("setDeviceAttestation",
                     "tokenBase64 not valid base64", e)
@@ -202,8 +202,7 @@ class SentlogModule(private val reactContext: ReactApplicationContext)
                       verificationMethod: String,
                       promise: Promise) {
         runCatching {
-            val bytes = android.util.Base64.decode(secretKeyBase64,
-                android.util.Base64.DEFAULT)
+            val bytes = decodeBase64Strict(secretKeyBase64)
             Sentlog.setSigningKey(bytes, verificationMethod)
             promise.resolve(null)
         }.onFailure { promise.reject("setSigningKey", it.message, it) }
@@ -281,6 +280,14 @@ class SentlogModule(private val reactContext: ReactApplicationContext)
     }
 
     // --- Event emitter helpers -----------------------------------
+    // android.util.Base64 skips invalid characters, so "@@@@" would decode
+    // to nothing and silently clear an attestation.
+    private fun decodeBase64Strict(text: String): ByteArray {
+        require(text.isNotEmpty() && text.length % 4 == 0 &&
+                Regex("^[A-Za-z0-9+/]+={0,2}$").matches(text)) { "not valid base64" }
+        return android.util.Base64.decode(text, android.util.Base64.NO_WRAP)
+    }
+
 
     private fun sendEvent(eventName: String, payload: String) {
         reactContext

@@ -55,7 +55,11 @@ public class SentlogModule: RCTEventEmitter {
                                   userInfo: [NSLocalizedDescriptionKey: "config not utf8"])
                 }
                 let cfg = try jsonDecoder.decode(SentlogConfig.self, from: data)
-                try Sentlog.initialize(config: cfg)
+                try Sentlog.initialize(config: cfg) { [weak self] event in
+                    guard let self, let data = try? self.jsonEncoder.encode(event) else { return }
+                    self.sendEvent(withName: "SentlogTelemetry",
+                                   body: String(decoding: data, as: UTF8.self))
+                }
                 resolve(nil)
             } catch {
                 reject("initialize", error.localizedDescription, error)

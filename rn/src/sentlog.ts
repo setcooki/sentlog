@@ -127,7 +127,7 @@ async function drainViaEventBridge(
             // ABI cb (which expects 1=delete).
             let keep = true;
             try {
-                keep = !handler(ev.envelope_json);
+                keep = !(await handler(ev.envelope_json));
             } catch (err) {
                 console.error("[sentlog] drain handler threw; keeping envelope", err);
                 keep = true;
@@ -140,6 +140,19 @@ async function drainViaEventBridge(
     } finally {
         sub.remove();
     }
+}
+
+/** The types promise `null` for these two, but native serializers omit
+ *  nil fields, so a `!== null` guard would pass on `undefined`. */
+function normalizeResult(result: SentlogResult): SentlogResult {
+    return {
+        ...result,
+        affect: result.affect ?? null,
+        transcript: {
+            ...result.transcript,
+            target_match: result.transcript.target_match ?? null,
+        },
+    };
 }
 
 export const Sentlog: SentlogBridge = {
@@ -158,7 +171,7 @@ export const Sentlog: SentlogBridge = {
 
     async evaluate(): Promise<SentlogResult> {
         const json = await requireNative().evaluate();
-        return JSON.parse(json) as SentlogResult;
+        return normalizeResult(JSON.parse(json) as SentlogResult);
     },
 
     async cancel(): Promise<void> {
@@ -178,7 +191,7 @@ export const Sentlog: SentlogBridge = {
 
     async getCapabilities(): Promise<Capabilities> {
         const json = await requireNative().getCapabilities();
-        return JSON.parse(json) as Capabilities;
+        return { ...(JSON.parse(json) as Capabilities), runtime: "react_native" };
     },
 
     async modelVersions(): Promise<ModelVersions> {

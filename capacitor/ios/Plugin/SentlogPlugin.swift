@@ -11,7 +11,28 @@ import Sentlog
 ///   - `SentlogDrainEnvelope`   — per-envelope inside drainQueueOnce.
 ///   - `SentlogTelemetry`       — per native telemetry event.
 @objc(SentlogPlugin)
-public class SentlogPlugin: CAPPlugin {
+public class SentlogPlugin: CAPPlugin, CAPBridgedPlugin {
+
+    public let identifier = "SentlogPlugin"
+    public let jsName = "Sentlog"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "version", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "initialize", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startCapture", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "evaluate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancel", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "destroy", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getPermissions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "modelVersions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "checkForUpdates", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setSigningKey", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pushFaceFrame", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setDeviceAttestation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setEnvelopeDispatcherActive", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "drainQueueOnce", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "drainQueueReply", returnType: CAPPluginReturnPromise),
+    ]
 
     private let jsonEncoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -38,7 +59,11 @@ public class SentlogPlugin: CAPPlugin {
                     throw NSError(domain: "Sentlog", code: -1)
                 }
                 let cfg = try jsonDecoder.decode(SentlogConfig.self, from: data)
-                try Sentlog.initialize(config: cfg)
+                try Sentlog.initialize(config: cfg) { [weak self] event in
+                    guard let self, let data = try? self.jsonEncoder.encode(event) else { return }
+                    self.notifyListeners("SentlogTelemetry",
+                                         data: ["event": String(decoding: data, as: UTF8.self)])
+                }
                 call.resolve()
             } catch {
                 call.reject(error.localizedDescription, nil, error)

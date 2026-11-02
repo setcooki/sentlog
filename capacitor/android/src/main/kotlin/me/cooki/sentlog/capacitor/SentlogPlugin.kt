@@ -1,6 +1,5 @@
 package me.cooki.sentlog.capacitor
 
-import android.util.Base64
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -43,6 +42,18 @@ class SentlogPlugin : Plugin() {
     private val drainReplies = ConcurrentHashMap<String, ConcurrentHashMap<Int, DrainReply>>()
     private val drainMutex = Mutex()
 
+    // android.util.Base64 skips invalid characters, so "@@@@" would decode
+    // to nothing and silently clear an attestation.
+    private fun decodeBase64Strict(text: String): ByteArray {
+        require(text.isNotEmpty() && text.length % 4 == 0 &&
+                Regex("^[A-Za-z0-9+/]+={0,2}$").matches(text)) { "not valid base64" }
+        return android.util.Base64.decode(text, android.util.Base64.NO_WRAP)
+    }
+
+    // PluginCall.reject takes an Exception, not a Throwable.
+    private fun PluginCall.fail(fallback: String, t: Throwable) =
+        reject(t.message ?: fallback, t as? Exception ?: Exception(t))
+
     @PluginMethod
     fun version(call: PluginCall) {
         val ret = JSObject()
@@ -65,7 +76,7 @@ class SentlogPlugin : Plugin() {
                 }
                 call.resolve()
             } catch (t: Throwable) {
-                call.reject(t.message ?: "initialize failed", t)
+                call.fail("initialize failed", t)
             }
         }
     }
@@ -73,7 +84,7 @@ class SentlogPlugin : Plugin() {
     @PluginMethod
     fun startCapture(call: PluginCall) {
         try { Sentlog.startCapture(); call.resolve() }
-        catch (t: Throwable) { call.reject(t.message ?: "startCapture failed", t) }
+        catch (t: Throwable) { call.fail("startCapture failed", t) }
     }
 
     @PluginMethod
@@ -86,7 +97,7 @@ class SentlogPlugin : Plugin() {
                         me.cooki.sentlog.SentlogResult.serializer(), r))
                 call.resolve(ret)
             } catch (t: Throwable) {
-                call.reject(t.message ?: "evaluate failed", t)
+                call.fail("evaluate failed", t)
             }
         }
     }
@@ -108,7 +119,7 @@ class SentlogPlugin : Plugin() {
             Sentlog.destroy()
             call.resolve()
         } catch (t: Throwable) {
-            call.reject(t.message ?: "destroy failed", t)
+            call.fail("destroy failed", t)
         }
     }
 
@@ -118,7 +129,7 @@ class SentlogPlugin : Plugin() {
             val p = Sentlog.getPermissions()
             call.resolve(JSObject().put("json",
                 json.encodeToString(me.cooki.sentlog.Permissions.serializer(), p)))
-        } catch (t: Throwable) { call.reject(t.message ?: "getPermissions failed", t) }
+        } catch (t: Throwable) { call.fail("getPermissions failed", t) }
     }
 
     @PluginMethod
@@ -127,7 +138,7 @@ class SentlogPlugin : Plugin() {
             val c = Sentlog.getCapabilities()
             call.resolve(JSObject().put("json",
                 json.encodeToString(me.cooki.sentlog.Capabilities.serializer(), c)))
-        } catch (t: Throwable) { call.reject(t.message ?: "getCapabilities failed", t) }
+        } catch (t: Throwable) { call.fail("getCapabilities failed", t) }
     }
 
     @PluginMethod
@@ -136,7 +147,7 @@ class SentlogPlugin : Plugin() {
             val m = Sentlog.modelVersions()
             call.resolve(JSObject().put("json",
                 json.encodeToString(me.cooki.sentlog.ModelVersions.serializer(), m)))
-        } catch (t: Throwable) { call.reject(t.message ?: "modelVersions failed", t) }
+        } catch (t: Throwable) { call.fail("modelVersions failed", t) }
     }
 
     @PluginMethod
@@ -149,7 +160,7 @@ class SentlogPlugin : Plugin() {
                 call.resolve(JSObject().put("json",
                     json.encodeToString(me.cooki.sentlog.UpdateResult.serializer(), u)))
             } catch (t: Throwable) {
-                call.reject(t.message ?: "checkForUpdates failed", t)
+                call.fail("checkForUpdates failed", t)
             }
         }
     }
@@ -161,11 +172,11 @@ class SentlogPlugin : Plugin() {
         val vm  = call.getString("verificationMethod")
             ?: return call.reject("verificationMethod required")
         try {
-            val bytes = Base64.decode(sk, Base64.DEFAULT)
+            val bytes = decodeBase64Strict(sk)
             Sentlog.setSigningKey(bytes, vm)
             call.resolve()
         } catch (t: Throwable) {
-            call.reject(t.message ?: "setSigningKey failed", t)
+            call.fail("setSigningKey failed", t)
         }
     }
 
@@ -174,8 +185,9 @@ class SentlogPlugin : Plugin() {
         // Capacitor numbers cross the bridge as Double; convert to Long
         // for the underlying SDK call (nanosecond timestamps are
         // Long-typed on the C ABI side).
-        val ts = call.getDouble("timestampNs")
-            ?: return call.reject("timestampNs required")
+        // getDouble returns null when the JSON value parsed as an integer.
+        val ts = call.data.optDouble("timestampNs", Double.NaN)
+        if (ts.isNaN()) return call.reject("timestampNs required")
         val valence = call.getFloat("valence")
             ?: return call.reject("valence required")
         val arousal = call.getFloat("arousal")
@@ -185,7 +197,7 @@ class SentlogPlugin : Plugin() {
             Sentlog.pushFaceFrame(ts.toLong(), valence, arousal, csv)
             call.resolve()
         } catch (t: Throwable) {
-            call.reject(t.message ?: "pushFaceFrame failed", t)
+            call.fail("pushFaceFrame failed", t)
         }
     }
 
@@ -195,7 +207,7 @@ class SentlogPlugin : Plugin() {
         val type        = call.getString("attestationType")
         val bytes = if (tokenBase64 != null) {
             try {
-                android.util.Base64.decode(tokenBase64, android.util.Base64.DEFAULT)
+                decodeBase64Strict(tokenBase64)
             } catch (e: IllegalArgumentException) {
                 return call.reject("tokenBase64 not valid base64", e)
             }
@@ -204,7 +216,7 @@ class SentlogPlugin : Plugin() {
             Sentlog.setDeviceAttestation(bytes, type)
             call.resolve()
         } catch (t: Throwable) {
-            call.reject(t.message ?: "setDeviceAttestation failed", t)
+            call.fail("setDeviceAttestation failed", t)
         }
     }
 
@@ -226,7 +238,7 @@ class SentlogPlugin : Plugin() {
             }
             call.resolve()
         } catch (t: Throwable) {
-            call.reject(t.message ?: "setEnvelopeDispatcherActive failed", t)
+            call.fail("setEnvelopeDispatcherActive failed", t)
         }
     }
 
@@ -258,7 +270,7 @@ class SentlogPlugin : Plugin() {
                     }
                     call.resolve(JSObject().put("delivered", delivered))
                 } catch (t: Throwable) {
-                    call.reject(t.message ?: "drainQueueOnce failed", t)
+                    call.fail("drainQueueOnce failed", t)
                 } finally {
                     drainReplies.remove(drainRequestId)
                 }

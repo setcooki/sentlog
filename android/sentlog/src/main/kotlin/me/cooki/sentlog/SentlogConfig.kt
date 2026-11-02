@@ -60,6 +60,9 @@ public data class SentlogConfig(
     // Ed25519 pubkey.
     @SerialName("manifest_url")     val manifestUrl:     String?       = null,
     @SerialName("manifest_pubkeys") val manifestPubkeys: List<String>? = null,
+
+    // --- scoring (docs/scoring-weights.md); null keeps the published defaults ---
+    @SerialName("scoring_weights") val scoringWeights: Map<String, Float>? = null,
 ) {
     init {
         // Fail-fast at config construction rather than at C++ parse
@@ -80,6 +83,9 @@ public data class Forwarder(
     @SerialName("sample_rate") val sampleRate: Float = 1.0f,
     val sink: JsonElement,                  // opaque to the SDK; sink kind/url etc. live in the JSON
     val retry: RetryPolicy = RetryPolicy(),
+    // Dotted result paths. Required for Custom, rejected otherwise, so
+    // null must stay off the wire (Sentlog's Json has explicitNulls=false).
+    @SerialName("custom_fields") val customFields: List<String>? = null,
 )
 
 @Serializable
