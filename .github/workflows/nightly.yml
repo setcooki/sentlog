@@ -33,6 +33,8 @@ jobs:
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
             -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi" \
             -DLIBCXXABI_USE_LLVM_UNWINDER=OFF \
+            -DLIBCXX_INCLUDE_TESTS=OFF -DLIBCXXABI_INCLUDE_TESTS=OFF \
+            -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
             -DLLVM_USE_SANITIZER=MemoryWithOrigins
           ninja -C "$RUNNER_TEMP/libcxx" cxx cxxabi
 
