@@ -11,23 +11,23 @@ apply plugin: "kotlin-android"
 
 android {
     namespace "me.cooki.sentlog.capacitor"
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         minSdk 24
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "21"
     }
 }
 
 dependencies {
-    implementation "com.getcapacitor:capacitor-android:5.0.0"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0"
+    implementation project(':capacitor-android')
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
     implementation "me.cooki.sentlog:sentlog:0.0.0"
 }

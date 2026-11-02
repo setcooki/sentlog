@@ -121,7 +121,7 @@ jobs:
         working-directory: rn
         run: |
           node -e "require('./package.json')"
-          npm install --no-audit --no-fund --silent
+          npm ci --no-audit --no-fund --silent
           npm run lint --silent
           npm run build --silent
           npm test --silent
@@ -140,7 +140,7 @@ jobs:
         working-directory: capacitor
         run: |
           node -e "require('./package.json')"
-          npm install --no-audit --no-fund --silent
+          npm ci --no-audit --no-fund --silent
           npm run lint --silent
           npm run build --silent
           npm test --silent
