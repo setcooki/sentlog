@@ -53,13 +53,13 @@ from v1.0 onward.
 
 When asked to make something: real code exists, real build commands
 work. Don't scaffold from scratch — `git log` + the rollout plan +
-the spec are the up-to-date sources. CI runs ~12 jobs on every push
+the spec are the up-to-date sources. CI runs 11 jobs on every push
 (shared ASan+UBSan, shared strict warnings, iOS SwiftPM, Android
 AAR, RN + Capacitor lint+build, types parity, evidence-verifier,
 reference-consumer, benchmark-harness selftest, docs presence). New
 code is expected to keep CI green.
 
-## Planned repository structure
+## Repository structure
 
 The full layout is documented in
 [docs/technical-specification.md §2](docs/technical-specification.md#2-repository-layout).
@@ -72,7 +72,7 @@ sentlog/
 ├── SECURITY.md
 ├── shared/                # C++17 core — narrow surface, heavily tested
 ├── android/               # AAR
-├── ios/                   # XCFramework
+├── ios/                   # Swift package
 ├── rn/                    # @sentlog/react-native bridge
 ├── capacitor/             # @sentlog/capacitor bridge
 ├── models/                # training + quantisation pipelines (not bundled in SDK)
@@ -106,7 +106,7 @@ sentlog/
 | Layer | Stack |
 |---|---|
 | Shared core | C++17, CMake, gtest |
-| Android binding | Kotlin, JNI, Gradle, Macrobenchmark, LiteRT |
+| Android binding | Kotlin, JNI, Gradle, Macrobenchmark, ONNX Runtime |
 | iOS binding | Swift, C interop, SPM, XCTest, Core ML, Vision |
 | React Native bridge | TypeScript, Kotlin (NativeModule), Swift (`@objc`) |
 | Capacitor bridge | TypeScript, Kotlin (`@CapacitorPlugin`), Swift (`CAP_PLUGIN`) |
@@ -120,24 +120,22 @@ sentlog/
 
 ## Commands
 
-The Makefile and CI commands do not exist yet. They will land in
-Phase 0. The expected shape, once scaffolded:
-
 ```bash
-# Phase 0 — first targets
-make setup            # install toolchains (cmake, ndk, xcode-select), pull pretrained models
-make build-shared     # build the C++ core
+make setup            # list the toolchains the build needs
+make build-shared     # build the C++ core (ASan + UBSan on)
 make build-android    # build the AAR
-make build-ios        # build the XCFramework
+make build-ios        # build the Swift package
 make build-rn         # build the @sentlog/react-native package
 make build-capacitor  # build the @sentlog/capacitor package
-make test             # gtest + connectedAndroidTest + XCTest + bridge snapshot tests
-make benchmark        # run tools/benchmark-harness against the three target Android devices
-make verify           # run tools/evidence-verifier against a fixture envelope
+make test             # C++ core tests + bridge typecheck and types parity
+make test-android     # Android unit tests
+make test-ios         # iOS XCTest suite
+make benchmark        # run the Android benchmarks (connected device needed)
+make verify           # run the tools/evidence-verifier selftest
+make lint             # typecheck both bridges + types parity
 ```
 
-When making any of these targets exist, name them as above so the
-public-facing surface stays predictable.
+CI is defined in [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## Key design constraints
 

@@ -1,8 +1,6 @@
 # Sentlog — top-level targets
 #
-# Phase 0 state: most targets are scaffolding stubs. They succeed without
-# doing real work yet — that's intentional. Each target gets real implementation
-# in the phase that owns it (see docs/rollout-plan.md).
+# CI is defined in .github/workflows/ci.yml.
 
 .PHONY: help setup build build-shared build-android build-ios build-rn build-capacitor \
         test test-shared test-android test-ios test-bridges \
@@ -11,21 +9,23 @@
 help:
 	@echo "Sentlog — common targets"
 	@echo ""
-	@echo "  make setup            install toolchains (placeholder)"
+	@echo "  make setup            list required toolchains"
 	@echo "  make build            build everything"
 	@echo "  make build-shared     build the C++ core (shared/)"
 	@echo "  make build-android    build the AAR (android/)"
-	@echo "  make build-ios        build the XCFramework (ios/)"
+	@echo "  make build-ios        build the Swift package (ios/)"
 	@echo "  make build-rn         build @sentlog/react-native (rn/)"
 	@echo "  make build-capacitor  build @sentlog/capacitor (capacitor/)"
-	@echo "  make test             run all tests"
-	@echo "  make benchmark        run tools/benchmark-harness"
-	@echo "  make verify           run tools/evidence-verifier on a fixture"
-	@echo "  make lint             lint everything"
+	@echo "  make test             run C++ core and bridge tests"
+	@echo "  make test-android     run Android unit tests"
+	@echo "  make test-ios         run iOS tests"
+	@echo "  make benchmark        run Android benchmarks"
+	@echo "  make verify           run tools/evidence-verifier selftest"
+	@echo "  make lint             typecheck bridges, check types parity"
 	@echo "  make clean            remove build outputs"
 
 setup:
-	@echo "[setup] Phase 0 stub — install CMake, NDK, Xcode CLI, Node, Python as needed"
+	@echo "[setup] install CMake, Gradle, Android SDK + NDK, Xcode CLI, Node, Python"
 
 build: build-shared build-android build-ios build-rn build-capacitor
 
@@ -50,18 +50,20 @@ test-ios:
 	@cd ios && swift test
 
 build-rn:
-	@echo "[build-rn] Phase 0 stub — @sentlog/react-native wires up in Phase 6"
+	@cd rn && npm ci --no-audit --no-fund --silent && npm run build --silent
 
 build-capacitor:
-	@echo "[build-capacitor] Phase 0 stub — @sentlog/capacitor wires up in Phase 6"
+	@cd capacitor && npm ci --no-audit --no-fund --silent && npm run build --silent
 
-test: test-shared
+test: test-shared test-bridges
 
 test-shared: build-shared
 	@cd shared/build && ctest --output-on-failure
 
-test-bridges:
-	@echo "[test-bridges] Phase 0 stub"
+test-bridges: build-rn build-capacitor
+	@cd rn && npm test --silent
+	@cd capacitor && npm test --silent
+	@bash tools/check-types-parity.sh
 
 benchmark:
 	@cd android && gradle :benchmarks:connectedReleaseAndroidTest \
@@ -69,10 +71,12 @@ benchmark:
 	@echo "[benchmark] done. Run tools/benchmark/check-thresholds.py on the JSON output."
 
 verify:
-	@echo "[verify] Phase 0 stub — wires up in Phase 7"
+	@python3 tools/evidence-verifier/selftest.py
 
-lint:
-	@echo "[lint] Phase 0 stub"
+lint: build-rn build-capacitor
+	@cd rn && npm run lint --silent
+	@cd capacitor && npm run lint --silent
+	@bash tools/check-types-parity.sh
 
 clean:
 	rm -rf shared/build
