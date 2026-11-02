@@ -453,9 +453,9 @@ void State::emit_pipeline_telemetry(const std::string& result_json,
 namespace {
 
 // Placeholder Sentlog-published manifest pubkeys baked into the build.
-// These zero arrays guarantee verification fails closed against any
-// real-world manifest — Sentlog has not yet published its manifest
-// signing infrastructure. Integrators that want to ship OTA today
+// Verification fails closed against these zero arrays because
+// ed25519_verify_detached rejects small-order keys — Sentlog has not
+// yet published its manifest signing infrastructure. Integrators that want to ship OTA today
 // override `manifest_url` + `manifest_pubkeys` in SentlogConfig.
 //
 // When Sentlog publishes the v1.0 manifest infra, the real pubkeys
