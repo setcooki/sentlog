@@ -27,8 +27,8 @@ into the platform asset directories:
 ## ONNX export details
 
 - **Target opset:** 17 (matches the ORT versions pinned on both
-  platforms: `onnxruntime-android` 1.17.1 and
-  `microsoft/onnxruntime-swift-package-manager` 1.17.1).
+  platforms: `onnxruntime-android` 1.24.2 and
+  `microsoft/onnxruntime-swift-package-manager` 1.24.2).
 - **Inputs:** `audio` (float32, shape `[batch, samples]`, dynamic).
 - **Outputs:** `embedding` (utterance embedding), `logits` (binary
   spoof / genuine classification).
