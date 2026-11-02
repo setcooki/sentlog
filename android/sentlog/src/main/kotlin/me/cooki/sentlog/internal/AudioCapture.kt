@@ -44,6 +44,8 @@ internal class AudioCapture(
         }
     }
 
+    private val pushLock = Any()
+
     fun start() {
         if (running) return
         vadChunker?.reset()
@@ -90,17 +92,19 @@ internal class AudioCapture(
 
     fun stop() {
         if (!running) return
-        running = false
-        thread?.join(STOP_JOIN_TIMEOUT_MS)
-        thread = null
+        // Once this block ends no push is running or can start, even if
+        // read() is still blocked, so the caller may free the handle.
+        synchronized(pushLock) { running = false }
         record?.let {
             try {
-                it.stop()
+                it.stop()  // unblocks read()
             } catch (_: IllegalStateException) {
                 // already stopped
             }
+            thread?.join(STOP_JOIN_TIMEOUT_MS)
             it.release()
         }
+        thread = null
         record = null
     }
 
@@ -120,11 +124,14 @@ internal class AudioCapture(
                 // failure on the next call.
                 break
             }
-            pushFrame(buf, n)
-            // VAD path runs inline; failures inside the chunker callback
-            // are caught and swallowed there (energy VAD still runs in
-            // the C++ pipeline as a fallback).
-            vadChunker?.feed(buf, n)
+            synchronized(pushLock) {
+                if (!running) return
+                pushFrame(buf, n)
+                // VAD path runs inline; failures inside the chunker callback
+                // are caught and swallowed there (energy VAD still runs in
+                // the C++ pipeline as a fallback).
+                vadChunker?.feed(buf, n)
+            }
         }
     }
 

@@ -1,5 +1,8 @@
 import Foundation
 import SentlogCore
+#if os(iOS)
+import AVFoundation
+#endif
 
 /// Sentlog — universal, device-first evidence and presence SDK.
 ///
@@ -42,7 +45,9 @@ public enum Sentlog {
     /// `userdata`. Same +1 retain pattern as `dispatcherUserdata`.
     private static var hwSignerUserdata: UnsafeMutableRawPointer?
 
-    private static let stateLock = NSLock()
+    // Recursive: a telemetry callback runs under this lock and may call
+    // back into the SDK.
+    private static let stateLock = NSRecursiveLock()
 
     private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -121,6 +126,10 @@ public enum Sentlog {
         defer { stateLock.unlock() }
 
         let h = try requireHandleLocked()
+        if permissionState(forMicrophone: ()) == .denied {
+            throw SentlogError(status: SENTLOG_ERR_PERMISSION_DENIED,
+                               context: "startCapture: microphone permission denied")
+        }
         let s = sentlog_start_capture(h)
         try NativeBridge.mustSucceed(s, "startCapture")
 
@@ -148,7 +157,14 @@ public enum Sentlog {
                                        prob)
             }
         )
-        try cap.start()
+        do {
+            try cap.start()
+        } catch {
+            // A failed start must not leave the core stuck in Capturing.
+            vadStream = nil
+            sentlog_cancel(h)
+            throw error
+        }
         audio = cap
 
         // Phase 3c: motion-coherence. Opt-in via config. CoreMotion
@@ -215,7 +231,7 @@ public enum Sentlog {
     /// this is a no-op and the C++ pipeline emits the placeholder
     /// transcript.
     private static func runWhisperAndPushTranscript(handle: OpaquePointer) {
-        // Capacity matches the C++ ring buffer (~30 s @ 16 kHz).
+        // Capacity matches the C++ ring buffer.
         let capacity = whisperMaxSamples
         var buf = [Float](repeating: 0, count: capacity)
         var written: size_t = 0
@@ -232,7 +248,7 @@ public enum Sentlog {
         }
     }
 
-    private static let whisperMaxSamples: Int = 16_000 * 30
+    private static let whisperMaxSamples: Int = 1_048_576
 
     /// Stop capture and run the evaluation pipeline. Returns when the
     /// pipeline completes.
@@ -298,7 +314,8 @@ public enum Sentlog {
         return try decoder.decode(SentlogResult.self, from: data)
     }
 
-    /// Cancel any in-progress capture or evaluation.
+    /// Cancel an in-progress capture. A running evaluation isn't
+    /// interrupted: this waits for it to finish.
     public static func cancel() {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -312,9 +329,41 @@ public enum Sentlog {
         }
     }
 
-    /// Current permission state. Never throws.
+    /// Current permission state. Throws only if not initialised.
     public static func getPermissions() throws -> Permissions {
-        try decode(Permissions.self, from: sentlog_get_permissions, label: "getPermissions")
+        let base = try decode(Permissions.self, from: sentlog_get_permissions,
+                              label: "getPermissions")
+        return Permissions(
+            microphone: permissionState(forMicrophone: ()),
+            // The IMU needs no runtime permission for raw sensor data.
+            motion: base.motion == .notRequested ? .notRequested : .granted,
+            camera: base.camera == .notRequested ? .notRequested : cameraPermissionState())
+    }
+
+    private static func permissionState(forMicrophone: Void) -> PermissionState {
+        #if os(iOS)
+        switch AVAudioSession.sharedInstance().recordPermission {
+        case .granted:      return .granted
+        case .denied:       return .denied
+        case .undetermined: return .prompt
+        @unknown default:   return .prompt
+        }
+        #else
+        return .prompt
+        #endif
+    }
+
+    private static func cameraPermissionState() -> PermissionState {
+        #if os(iOS)
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:            return .granted
+        case .denied, .restricted:   return .denied
+        case .notDetermined:         return .prompt
+        @unknown default:            return .prompt
+        }
+        #else
+        return .prompt
+        #endif
     }
 
     /// Current capability detection. Never throws beyond
@@ -357,12 +406,6 @@ public enum Sentlog {
     /// overload when integrating apps want to drive the fetch itself
     /// (custom URLSession config, caching, etc.).
     public static func checkForUpdates(manifestJson: String) async throws -> UpdateResult {
-        let h = try { () throws -> OpaquePointer in
-            stateLock.lock()
-            defer { stateLock.unlock() }
-            return try requireHandleLocked()
-        }()
-
         let updateJson: String = try await withCheckedThrowingContinuation { cont in
             let box = NativeBridge.UpdateBox(cont)
             let userdata = Unmanaged.passRetained(box).toOpaque()
@@ -387,6 +430,18 @@ public enum Sentlog {
                     return
                 }
                 box.continuation?.resume(returning: String(cString: updateCStr))
+            }
+            // Under stateLock so destroy() can't free the handle during
+            // the call. The callback fires synchronously inside it.
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            let h: OpaquePointer
+            do {
+                h = try requireHandleLocked()
+            } catch {
+                Unmanaged<NativeBridge.UpdateBox>.fromOpaque(userdata).release()
+                cont.resume(throwing: error)
+                return
             }
             let bytes = Array(manifestJson.utf8)
             _ = bytes.withUnsafeBufferPointer { ptr in
@@ -797,24 +852,22 @@ public enum Sentlog {
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         req.timeoutInterval = manifestTimeoutSec
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: req)
-        } catch {
+        let result: BoundedFetch.Result = await withCheckedContinuation { cont in
+            BoundedFetch.run(req, maxBytes: manifestMaxBytes) { cont.resume(returning: $0) }
+        }
+        switch result {
+        case .success(let data):
+            return data
+        case .httpStatus(let code):
+            throw SentlogError(status: SENTLOG_ERR_INTERNAL,
+                               context: "manifest fetch HTTP \(code) from \(urlString)")
+        case .oversize:
+            throw SentlogError(status: SENTLOG_ERR_INVALID_CONFIG,
+                               context: "manifest oversize (> \(manifestMaxBytes))")
+        case .failed(let error):
             throw SentlogError(status: SENTLOG_ERR_INTERNAL,
                                context: "manifest fetch: \(error.localizedDescription)")
         }
-        guard let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode) else {
-            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw SentlogError(status: SENTLOG_ERR_INTERNAL,
-                               context: "manifest fetch HTTP \(code) from \(urlString)")
-        }
-        if data.count > manifestMaxBytes {
-            throw SentlogError(status: SENTLOG_ERR_INVALID_CONFIG,
-                               context: "manifest oversize (\(data.count) > \(manifestMaxBytes))")
-        }
-        return data
     }
 
     private static func decode<T: Decodable>(

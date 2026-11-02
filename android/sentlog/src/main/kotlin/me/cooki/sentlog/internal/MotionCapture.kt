@@ -41,7 +41,8 @@ internal class MotionCapture(
         context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
-    private var isRunning = false
+    @Volatile private var isRunning = false
+    private val pushLock = Any()
 
     // Latest gyro reading, updated by the gyro listener and read by
     // the accel listener. Single-thread access (both listeners run on
@@ -52,12 +53,14 @@ internal class MotionCapture(
 
     private val accelListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
-            if (!isRunning) return
-            pushFrame(
-                event.timestamp,
-                event.values[0], event.values[1], event.values[2],
-                lastGx, lastGy, lastGz,
-            )
+            synchronized(pushLock) {
+                if (!isRunning) return
+                pushFrame(
+                    event.timestamp,
+                    event.values[0], event.values[1], event.values[2],
+                    lastGx, lastGy, lastGz,
+                )
+            }
         }
         override fun onAccuracyChanged(s: Sensor?, accuracy: Int) {}
     }
@@ -95,7 +98,10 @@ internal class MotionCapture(
 
     fun stop() {
         if (!isRunning) return
-        isRunning = false
+        // Once this block ends no push is running or can start, so the
+        // caller may free the handle. unregisterListener alone doesn't
+        // wait for a callback already on the handler thread.
+        synchronized(pushLock) { isRunning = false }
         sensorManager?.unregisterListener(accelListener)
         sensorManager?.unregisterListener(gyroListener)
         thread?.quitSafely()

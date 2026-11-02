@@ -71,23 +71,23 @@ internal class WhisperRunner private constructor(
 
         private fun stageAssetToCache(ctx: Context): File? {
             val out = File(ctx.cacheDir, ASSET_NAME)
-            // Re-use the staged copy when its size matches the asset.
-            // We don't bother with checksums here — the asset and the
-            // staged file have a 1:1 lifetime within the app sandbox.
-            try {
-                ctx.assets.openFd(ASSET_NAME).use { afd ->
-                    if (out.exists() && out.length() == afd.length) return out
-                }
-            } catch (_: FileNotFoundException) {
-                return null
-            }
+            // Assets are stored compressed unless the app opts out, and
+            // openFd throws on those, so size can't be compared up front.
+            // A copy newer than the last app update is current; the rename
+            // means an interrupted copy is never mistaken for one.
+            val updatedAt = ctx.packageManager
+                .getPackageInfo(ctx.packageName, 0).lastUpdateTime
+            if (out.exists() && out.lastModified() >= updatedAt) return out
+            val tmp = File(ctx.cacheDir, "$ASSET_NAME.tmp")
             return try {
                 ctx.assets.open(ASSET_NAME).use { input ->
-                    FileOutputStream(out).use { fout -> input.copyTo(fout) }
+                    FileOutputStream(tmp).use { fout -> input.copyTo(fout) }
                 }
-                out
+                if (tmp.renameTo(out)) out else null
             } catch (_: FileNotFoundException) {
                 null
+            } finally {
+                tmp.delete()
             }
         }
 

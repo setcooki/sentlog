@@ -33,8 +33,8 @@ Per [`docs/permissions.md`](../../docs/permissions.md):
   `NSMotionUsageDescription` (recommended if `useMotionSensors=
   true`).
 - **Android `AndroidManifest.xml`:** the SDK's library manifest
-  already declares `RECORD_AUDIO` and `CAMERA`. The integrator's
-  app is still responsible for requesting these via the runtime
+  already declares `RECORD_AUDIO`. Apps using video affect declare
+  `CAMERA` themselves. The integrator's app is still responsible for requesting these via the runtime
   permission UX before calling `Sentlog.startCapture()`.
 
 ## Use

@@ -55,7 +55,7 @@ public enum OpusAudioEncoder {
             outLen.pointee = encoded.count
             return 0
         }
-        try Sentlog.setAudioEncoder(cb, codecName: "opus")
+        try Sentlog.setAudioEncoder(cb, codecName: "opus-framed-v1")
     }
 
     /// Clear any previously-registered audio encoder. After this,
@@ -67,9 +67,8 @@ public enum OpusAudioEncoder {
     // ------- internals -------
 
     /// Encode the given 16 kHz mono float PCM to Opus bytes using
-    /// AVAudioConverter. Returns the encoded payload as a single
-    /// Data — Opus's internal framing is a sequence of self-contained
-    /// packets, concatenable without an extra container.
+    /// AVAudioConverter. Opus packets don't delimit themselves, so each
+    /// is prefixed with its length as a big-endian uint16 ("opus-framed-v1").
     private static func encode16kMonoFloatToOpus(
         samples: UnsafeBufferPointer<Float>
     ) throws -> Data {
@@ -134,12 +133,17 @@ public enum OpusAudioEncoder {
             if let err { throw err }
             let pktCount = Int(outBuf.packetCount)
             let byteCount = Int(outBuf.byteLength)
-            if pktCount > 0 && byteCount > 0 {
+            if pktCount > 0 && byteCount > 0, let descriptions = outBuf.packetDescriptions {
                 // outBuf.data is UnsafeMutableRawPointer; bind to
                 // UInt8 explicitly for Data.append(_:count:).
                 let typed = UnsafeRawPointer(outBuf.data)
                     .assumingMemoryBound(to: UInt8.self)
-                encoded.append(typed, count: byteCount)
+                for i in 0..<pktCount {
+                    let size = Int(descriptions[i].mDataByteSize)
+                    encoded.append(UInt8(size >> 8))
+                    encoded.append(UInt8(size & 0xff))
+                    encoded.append(typed + Int(descriptions[i].mStartOffset), count: size)
+                }
             }
             if status == .endOfStream || status == .error { break }
             if pktCount == 0 { break }

@@ -90,25 +90,55 @@ public enum RfcTsaProvider {
         let holder = Holder()
         let lock = NSLock()
         let sem  = DispatchSemaphore(value: 0)
-        let task = URLSession.shared.dataTask(with: req) { data, response, _ in
+        BoundedFetch.run(req, maxBytes: maxTsaRespBytes) { result in
             defer { sem.signal() }
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  let data, data.count <= maxTsaRespBytes else { return }
+            guard case .success(let data) = result,
+                  isGrantedResponse(data, digest: digest) else { return }
             lock.lock()
             holder.data = data
             lock.unlock()
         }
-        task.resume()
         let timeout = DispatchTime.now() + .milliseconds(timeoutMs)
         if sem.wait(timeout: timeout) == .timedOut {
-            task.cancel()
             return nil
         }
         lock.lock()
         let result = holder.data
         lock.unlock()
         return result
+    }
+
+    /// TimeStampResp ::= SEQUENCE {
+    ///     status          PKIStatusInfo { status INTEGER, ... },
+    ///     timeStampToken  TimeStampToken OPTIONAL
+    /// }
+    /// Requires PKIStatus 0 (granted) or 1 (with modifications) and a
+    /// token containing our digest, so a rejection served with HTTP 200
+    /// doesn't count. The token's signature and chain are the verifier's
+    /// job.
+    internal static func isGrantedResponse(_ response: Data, digest: Data) -> Bool {
+        let resp = [UInt8](response)
+        // Reads a tag and DER length at `pos`; returns (bodyStart, bodyLength).
+        func header(_ pos: Int, _ tag: UInt8) -> (Int, Int)? {
+            guard pos + 2 <= resp.count, resp[pos] == tag else { return nil }
+            let first = Int(resp[pos + 1])
+            if first < 0x80 { return (pos + 2, first) }
+            let count = first & 0x7f
+            guard count > 0, count <= 3, pos + 2 + count <= resp.count else { return nil }
+            var length = 0
+            for i in 0..<count { length = (length << 8) | Int(resp[pos + 2 + i]) }
+            return (pos + 2 + count, length)
+        }
+        guard let (outerStart, outerLen) = header(0, 0x30),
+              outerStart + outerLen == resp.count,
+              let (infoStart, infoLen) = header(outerStart, 0x30),
+              let (statusStart, statusLen) = header(infoStart, 0x02),
+              statusLen == 1, statusStart < resp.count,
+              resp[statusStart] == 0 || resp[statusStart] == 1 else { return false }
+        let tokenStart = infoStart + infoLen
+        guard tokenStart < resp.count else { return false }
+        return response.range(of: digest,
+                              in: tokenStart..<resp.count) != nil
     }
 
     /// Encode a minimal RFC 3161 TimeStampReq — matches the Kotlin

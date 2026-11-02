@@ -13,7 +13,7 @@ PERMISSION_DENIED)`).
 |---|---|---|---|
 | Voice pipeline | `NSMicrophoneUsageDescription` in `Info.plist` | `RECORD_AUDIO` runtime permission | Always |
 | Motion coherence ([`presence.motion`](technical-specification.md)) | `NSMotionUsageDescription` (recommended, OS logs the access regardless) | none — CoreSensorManager is permission-free at the sample rates we use (≤200 Hz) | `SentlogConfig.useMotionSensors == true` |
-| Video affect ([`affect`](technical-specification.md)) | `NSCameraUsageDescription` in `Info.plist` | `CAMERA` runtime permission | `SentlogConfig.useVideoAffect == true` |
+| Video affect ([`affect`](technical-specification.md)) | `NSCameraUsageDescription` in `Info.plist` | `CAMERA` declared in your manifest (the SDK does not declare it) plus the runtime permission | `SentlogConfig.useVideoAffect == true` |
 | Hardware-backed signing | none (Secure Enclave is non-prompting) | none (Android KeyStore StrongBox is non-prompting) | `SentlogConfig.useHardwareSigning == true` (Phase 7) |
 
 ## What does NOT need a permission
