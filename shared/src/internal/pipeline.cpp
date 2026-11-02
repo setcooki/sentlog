@@ -398,15 +398,6 @@ std::string Pipeline::run(const Config& config,
     float base_confidence = vad_report.has_speech() ? 0.6f : 0.0f;
     if (language_mismatch) base_confidence *= 0.5f;
     result["confidence"]     = base_confidence;
-    // thresholds_met is the only place threshold values are consumed
-    // per the spec. Phase 2 reads direction_threshold; the rest of
-    // the per-metric thresholds light up as their scores land
-    // (liveness in Phase 3+, engagement when trained). For now: only
-    // assertable when target_match was actually computed; otherwise
-    // nothing to gate on.
-    const bool thresholds_met = target_match_score.has_value()
-        && direction >= config.direction_threshold;
-    result["thresholds_met"] = thresholds_met;
 
     // 7. Engagement — voice_score from the Phase 3d prosody
     //    extractor when speech was detected; face_score from the
@@ -419,6 +410,7 @@ std::string Pipeline::run(const Config& config,
     //    Integrators are told not to surface engagement.score until
     //    model_status is "trained" (Phase 6+ when the trained head
     //    lands).
+    std::optional<float> engagement_score;
     std::optional<ProsodyFeatures> prosody;
     if (vad_report.has_speech()) {
         prosody = extract_prosody(audio.data(), audio.size());
@@ -449,7 +441,8 @@ std::string Pipeline::run(const Config& config,
                 num += affect.face_score * w_face;
                 den += w_face;
             }
-            e["score"]        = (den > 0.0f) ? (num / den) : 0.0f;
+            engagement_score  = (den > 0.0f) ? (num / den) : 0.0f;
+            e["score"]        = *engagement_score;
             e["model_status"] = "training";
         } else {
             e["voice_score"]  = 0.65f;
@@ -458,6 +451,20 @@ std::string Pipeline::run(const Config& config,
         }
         result["engagement"] = e;
     }
+
+    // thresholds_met is the only place threshold values are consumed
+    // per the spec. Every check must pass, and a score counts only if
+    // something produced it: the liveness and engagement placeholders
+    // and an uncomputed target_match never meet a threshold. See
+    // docs/scoring-weights.md.
+    result["thresholds_met"] =
+        target_match_score.has_value() &&
+        direction >= config.direction_threshold &&
+        pushed_liveness.has_value() &&
+        pushed_liveness->score >= config.liveness_threshold &&
+        engagement_score.has_value() &&
+        *engagement_score >= config.engagement_threshold &&
+        base_confidence >= config.min_confidence;
 
     // 7b. Affect block — populated only when the face aggregator
     //     ran. Per spec §5.3 the raw landmark frames never leave
