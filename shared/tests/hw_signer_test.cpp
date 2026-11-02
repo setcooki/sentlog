@@ -251,6 +251,54 @@ TEST(HwSignerTest, FailureWithRequiredDropsEnvelope) {
     sentlog_destroy(h);
 }
 
+TEST(HwSignerTest, NoSignerWithRequiredDropsEnvelope) {
+    TelemetryCapture tcap;
+    sentlog_status_t status = SENTLOG_OK;
+    sentlog_handle_t* h = sentlog_create(
+        kRequiredConfig, &telemetry_cb, &tcap, &status);
+    ASSERT_NE(h, nullptr);
+
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &dispatcher_cb, &dcap),
+              SENTLOG_OK);
+
+    run_one_evaluation(h);
+
+    EXPECT_EQ(dcap.envelopes.size(), 0u);
+    EXPECT_TRUE(contains_event_type(tcap, "ForwarderOutcome"));
+    EXPECT_FALSE(contains_event_type(tcap, "HardwareSigningUnavailable"));
+    sentlog_destroy(h);
+}
+
+TEST(HwSignerTest, NoSignerFallsBackWithTelemetry) {
+    TelemetryCapture tcap;
+    sentlog_status_t status = SENTLOG_OK;
+    sentlog_handle_t* h = sentlog_create(
+        kBaseConfig, &telemetry_cb, &tcap, &status);
+    ASSERT_NE(h, nullptr);
+
+    DispatchCapture dcap;
+    ASSERT_EQ(sentlog_set_envelope_dispatcher(h, &dispatcher_cb, &dcap),
+              SENTLOG_OK);
+
+    run_one_evaluation(h);
+
+    ASSERT_EQ(dcap.envelopes.size(), 1u);
+    bool saw_reason = false;
+    {
+        std::lock_guard<std::mutex> lock(tcap.m);
+        for (const auto& ev : tcap.events) {
+            const auto j = json::parse(ev);
+            if (j.value("type", "") == "HardwareSigningUnavailable" &&
+                j.value("reason", "") == "signer_not_registered") {
+                saw_reason = true; break;
+            }
+        }
+    }
+    EXPECT_TRUE(saw_reason);
+    sentlog_destroy(h);
+}
+
 TEST(HwSignerTest, ClearingHwSignerRevertsToSoftwarePath) {
     sentlog_status_t status = SENTLOG_OK;
     sentlog_handle_t* h = sentlog_create(
