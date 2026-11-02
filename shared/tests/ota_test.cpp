@@ -179,6 +179,51 @@ TEST(OtaManifestTest, RejectsTamperedManifestField) {
               ManifestVerifyStatus::BadSignature);
 }
 
+TEST(OtaManifestTest, RejectsForgeryAgainstSmallOrderKeys) {
+    // With a small-order public key, verification reduces to a check
+    // an attacker can satisfy with no private key: R = identity,
+    // S = 0, then vary the message until the hash lands on a multiple
+    // of the key's order. All-zero is the default-build placeholder.
+    const std::array<std::string, 7> encodings = {
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0100000000000000000000000000000000000000000000000000000000000000",
+        "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+        "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+        "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    };
+    std::array<uint8_t, 64> forged_sig{};
+    forged_sig[0] = 1;  // R = identity, S = 0
+
+    for (const auto& hex : encodings) {
+        for (const uint8_t sign_bit : {uint8_t{0x00}, uint8_t{0x80}}) {
+            Ed25519PublicKey key{};
+            for (size_t i = 0; i < key.size(); ++i) {
+                key[i] = static_cast<uint8_t>(
+                    std::stoi(hex.substr(i * 2, 2), nullptr, 16));
+            }
+            key[31] |= sign_bit;
+
+            for (int64_t n = 0; n < 256; ++n) {
+                auto manifest = make_manifest_object();
+                manifest["issued_at_ms"] = n;
+                json env;
+                env["manifest"]         = manifest;
+                env["key_id"]           = "active";
+                env["signature_b64url"] =
+                    base64url_no_pad(forged_sig.data(), forged_sig.size());
+
+                Manifest m;
+                EXPECT_EQ(parse_and_verify_manifest(env.dump(), key, key, m),
+                          ManifestVerifyStatus::BadSignature)
+                    << "key " << hex << " sign " << int(sign_bit)
+                    << " message " << n;
+            }
+        }
+    }
+}
+
 TEST(OtaManifestTest, RejectsTamperedSignature) {
     const auto active_sk  = make_active_secret_key();
     const auto standby_sk = make_standby_secret_key();

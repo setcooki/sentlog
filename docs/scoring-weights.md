@@ -57,6 +57,20 @@ scoring weights affect the composite `presence.summary` and
 score components, which always stay as the model's raw probability
 output.
 
+It is `true` only when all of these hold:
+
+| Score | Must be at least | Must also |
+|---|---|---|
+| `direction` | `direction_threshold` | come from a `target_phrase` comparison |
+| `liveness.score` | `liveness_threshold` | come from a pushed liveness result, not the placeholder |
+| `engagement.score` | `engagement_threshold` | come from a voice or face signal, not the placeholder |
+| `confidence` | `min_confidence` | |
+
+So it stays `false` when no `target_phrase` is configured or no
+liveness model ran, whatever the thresholds are set to. Engagement
+scores with `model_status: "training"` count, because no trained head
+exists yet.
+
 ## When to override
 
 - **Don't** as a way to dial down a model whose precision you're not
