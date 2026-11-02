@@ -77,12 +77,12 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: "platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125 cmake;3.22.1"
+          packages: "platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358 cmake;3.22.1"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: "8.5"
+          gradle-version: "9.8.2"
           cache-read-only: false
 
       - name: Build AAR (debug)
@@ -121,7 +121,7 @@ jobs:
         working-directory: rn
         run: |
           node -e "require('./package.json')"
-          npm install --no-audit --no-fund --silent
+          npm ci --no-audit --no-fund --silent
           npm run lint --silent
           npm run build --silent
           npm test --silent
@@ -140,7 +140,7 @@ jobs:
         working-directory: capacitor
         run: |
           node -e "require('./package.json')"
-          npm install --no-audit --no-fund --silent
+          npm ci --no-audit --no-fund --silent
           npm run lint --silent
           npm run build --silent
           npm test --silent

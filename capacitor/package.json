@@ -20,10 +20,10 @@
     "test": "tsc -p . --noEmit"
   },
   "peerDependencies": {
-    "@capacitor/core": ">=5.0.0"
+    "@capacitor/core": ">=8.0.0"
   },
   "devDependencies": {
-    "typescript": "5.4.5"
+    "typescript": "7.0.2"
   },
   "capacitor": {
     "ios": {

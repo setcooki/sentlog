@@ -13,7 +13,7 @@ apply plugin: "kotlin-android"
 
 android {
     namespace "me.cooki.sentlog.rn"
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         minSdk 24
@@ -32,7 +32,7 @@ dependencies {
     // React Native is provided by the consumer app's RN install.
     // The autolink resolves the correct version.
     implementation "com.facebook.react:react-android"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
 
     // The Sentlog AAR (Phase 1+ native binding). Consumers wire
     // this via Maven or a local file dep — see README.md.
