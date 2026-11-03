@@ -13,7 +13,7 @@ help:
 	@echo "  make build            build everything"
 	@echo "  make build-shared     build the C++ core (shared/)"
 	@echo "  make build-android    build the AAR (android/)"
-	@echo "  make build-ios        build the Swift package (ios/)"
+	@echo "  make build-ios        build the Swift package"
 	@echo "  make build-rn         build @sentlog/react-native (rn/)"
 	@echo "  make build-capacitor  build @sentlog/capacitor (capacitor/)"
 	@echo "  make test             run C++ core and bridge tests"
@@ -44,10 +44,10 @@ test-android:
 	@cd android && gradle :sentlog:testDebugUnitTest --no-daemon
 
 build-ios:
-	@cd ios && swift build
+	@swift build
 
 test-ios:
-	@cd ios && swift test
+	@swift test
 
 build-rn:
 	@cd rn && npm ci --no-audit --no-fund --silent && npm run build --silent
@@ -81,6 +81,6 @@ lint: build-rn build-capacitor
 clean:
 	rm -rf shared/build
 	rm -rf android/sentlog/build android/benchmarks/build
-	rm -rf ios/.build ios/.swiftpm
+	rm -rf .build .swiftpm
 	rm -rf rn/node_modules rn/dist
 	rm -rf capacitor/node_modules capacitor/dist

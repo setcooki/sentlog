@@ -70,7 +70,8 @@ sentlog/
 │   ├── sentlog/           # Kotlin public API, JNI, OTA fetch, sensors,
 │   │                      # ONNX Runtime + whisper.cpp inference
 │   └── benchmarks/        # macrobenchmark module
-├── ios/                   # Swift package (Package.swift)
+├── Package.swift          # Swift package manifest (sources in ios/, shared/)
+├── ios/                   # Swift binding sources
 │   ├── Sources/Sentlog/   # Swift public API, OTA fetch, sensors,
 │   │                      # ONNX Runtime + whisper.cpp inference
 │   ├── External/          # vendored whisper.cpp package

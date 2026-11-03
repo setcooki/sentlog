@@ -10,15 +10,18 @@ Capacitor plugin for the Sentlog SDK. Pre-v1.0: the API may still change.
   It isn't on Maven Central yet, so build it with
   `gradle -p android :sentlog:assembleDebug` and serve it from a local
   Maven repo.
-- **iOS:** install isn't possible yet. [`SentlogCapacitor.podspec`](ios/SentlogCapacitor.podspec) depends on a
-  `Sentlog` pod, and that pod doesn't exist.
+- **iOS:** Swift Package Manager only (`npx cap add ios --packagemanager SPM`);
+  there's no CocoaPods support because there's no `Sentlog` pod. Set your
+  app's iOS deployment target to 16 and run `npx cap sync ios`. The plugin's
+  [`Package.swift`](Package.swift) pulls the Swift package from this repo's
+  `main` branch, because there's no tagged release yet.
 
 ## What works
 
 The TypeScript surface builds and type-checks. The Android code is
 compile-checked against the AAR by
-[`tools/bridge-compile/`](../tools/bridge-compile/) (see `run.sh`). The
-iOS code exists but can't be installed, for the reason above.
+[`tools/bridge-compile/`](../tools/bridge-compile/) (see `run.sh`). CI
+doesn't build the iOS plugin.
 
 The bridge has no networking of its own. For `http` and `webhook` sinks,
 deliver envelopes from your `setEnvelopeDispatcher` handler.

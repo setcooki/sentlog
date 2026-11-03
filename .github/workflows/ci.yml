@@ -145,13 +145,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve and build (SwiftPM, includes ../shared C++ core)
-        working-directory: ios
+      - name: Resolve and build (SwiftPM, includes shared/ C++ core)
         run: swift build -v
 
       - name: Test (macOS host — exercises Swift API + C++ shared core via SwiftPM)
-        working-directory: ios
         run: swift test -v
+
+      # SwiftPM rejects local-path dependencies and unsafeFlags only when
+      # a package is consumed from outside, so the builds above can't
+      # catch either one.
+      - name: Consume the package by URL at a version tag
+        run: |
+          git tag 9.9.9
+          app="$RUNNER_TEMP/consumer"
+          mkdir -p "$app/Sources/App"
+          printf 'import Sentlog\nprint(Sentlog.self)\n' > "$app/Sources/App/main.swift"
+          cat > "$app/Package.swift" <<EOF
+          // swift-tools-version: 5.9
+          import PackageDescription
+          let package = Package(
+              name: "App",
+              platforms: [.macOS(.v14)],
+              dependencies: [.package(url: "file://$GITHUB_WORKSPACE", exact: "9.9.9")],
+              targets: [.executableTarget(
+                  name: "App",
+                  dependencies: [.product(name: "Sentlog", package: "$(basename "$GITHUB_WORKSPACE" | tr '[:upper:]' '[:lower:]')")],
+                  path: "Sources/App")]
+          )
+          EOF
+          swift build --package-path "$app"
 
   rn-package:
     name: rn (npm package)

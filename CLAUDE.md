@@ -72,7 +72,8 @@ sentlog/
 ├── SECURITY.md
 ├── shared/                # C++17 core — narrow surface, heavily tested
 ├── android/               # AAR
-├── ios/                   # Swift package
+├── Package.swift          # Swift package manifest
+├── ios/                   # Swift binding
 ├── rn/                    # @sentlog/react-native bridge
 ├── capacitor/             # @sentlog/capacitor bridge
 ├── models/                # training + quantisation pipelines (not bundled in SDK)

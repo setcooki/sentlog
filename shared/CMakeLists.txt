@@ -39,7 +39,7 @@ add_compile_options(
 # --- Third-party deps -------------------------------------------------
 # nlohmann/json is vendored as a single header at
 # external/nlohmann/json.hpp. Both the CMake build (here) and the
-# SwiftPM build (ios/Package.swift) consume the same file — keeps the
+# SwiftPM build (root Package.swift) consume the same file — keeps the
 # two build systems on identical source. Updates: drop in a new
 # single_include/nlohmann/json.hpp from upstream.
 
