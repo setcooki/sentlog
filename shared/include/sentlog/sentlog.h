@@ -147,7 +147,7 @@ typedef void (*sentlog_envelope_dispatch_cb_t)(
  * on Android) — the C++ core stays codec-free.
  *
  *   to_hash_bytes          Bytes to digest + timestamp (envelope's
- *                          proof.proofValue, base64url-encoded).
+ *                          proof.proofValue, multibase base58btc).
  *   to_hash_len            Length of to_hash_bytes.
  *   tsa_endpoint_url       The full TSA URL from SentlogConfig.
  *                          Passed through unchanged.
@@ -205,10 +205,12 @@ typedef int (*sentlog_audio_encoder_cb_t)(
 /* Hardware-backed signing callback (Phase 7c). The platform binding
  * implements this with whatever the OS exposes: Secure Enclave on
  * iOS (ECDSA-P256), KeyStore StrongBox on Android (Ed25519 on API
- * 33+, otherwise ECDSA-P256). The C++ core hands the canonical bytes
- * to sign and expects the raw signature back.
+ * 33+, otherwise ECDSA-P256). The C++ core hands the bytes to sign
+ * and expects the signature back.
  *
- *   message_bytes        The JCS-canonicalised envelope bytes to sign.
+ *   message_bytes        SHA-256(JCS(proof config)) || SHA-256(JCS(envelope)),
+ *                        64 bytes. For ECDSA, sign these with SHA-256
+ *                        as the message digest.
  *   message_len          Length of message_bytes.
  *   sig_out_buf          Caller-provided buffer the cb writes the
  *                        raw signature into. ECDSA-P256 signatures

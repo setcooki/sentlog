@@ -7,9 +7,15 @@ extern "C" {
 #include "tweetnacl/tweetnacl.h"
 }
 
+#include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "internal/config.h"
 #include "internal/envelope.h"
@@ -18,14 +24,43 @@ using nlohmann::json;
 using sentlog::internal::base64url_no_pad;
 using sentlog::internal::build_envelope_unsigned;
 using sentlog::internal::Config;
+using sentlog::internal::data_integrity_hash;
 using sentlog::internal::ed25519_sign;
 using sentlog::internal::Ed25519SecretKey;
 using sentlog::internal::jcs_canonicalize;
 using sentlog::internal::kEd25519PublicKeyBytes;
 using sentlog::internal::kEd25519SignatureBytes;
 using sentlog::internal::sign_envelope_eddsa_jcs;
+using sentlog::internal::sign_envelope_via_hw_jcs;
 
 namespace {
+
+std::vector<uint8_t> hex_decode(const std::string& hex) {
+    std::vector<uint8_t> out;
+    for (size_t i = 0; i < hex.size(); i += 2) {
+        out.push_back(static_cast<uint8_t>(std::stoi(hex.substr(i, 2), nullptr, 16)));
+    }
+    return out;
+}
+
+std::vector<uint8_t> base58_decode(const std::string& text) {
+    const std::string alphabet =
+        "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    std::vector<uint8_t> out;  // big-endian
+    for (const char c : text) {
+        uint32_t carry = static_cast<uint32_t>(alphabet.find(c));
+        for (auto it = out.rbegin(); it != out.rend(); ++it) {
+            carry += static_cast<uint32_t>(*it) * 58;
+            *it = static_cast<uint8_t>(carry & 0xff);
+            carry >>= 8;
+        }
+        while (carry > 0) {
+            out.insert(out.begin(), static_cast<uint8_t>(carry & 0xff));
+            carry >>= 8;
+        }
+    }
+    return out;
+}
 
 // RFC 8032 §7.1 test vector 1 — pinned (seed, pubkey) pair so we
 // don't need to call tweetnacl's keypair derivation (which depends
@@ -228,41 +263,164 @@ TEST(SignEnvelopeTest, TamperingChangesVerification) {
     // Tamper the payload after signing.
     env["credentialSubject"]["payload"]["transcript"]["text"] = "TAMPERED";
 
-    // Pull out and decode the signature; re-canonicalise without
-    // proofValue and verify — expect mismatch.
-    const std::string proof_value_b64 = env["proof"]["proofValue"].get<std::string>();
-    auto env_for_verify = env;
-    env_for_verify["proof"].erase("proofValue");
-    const std::string canonical = jcs_canonicalize(env_for_verify.dump());
+    const std::string proof_value = env["proof"]["proofValue"].get<std::string>();
+    auto doc = env;
+    doc.erase("proof");
+    auto proof_config = env["proof"];
+    proof_config.erase("proofValue");
+    const std::string canonical =
+        data_integrity_hash(proof_config.dump(), doc.dump());
 
-    // Decode base64url. Manual since we only encode in production.
-    auto b64url_decode = [](const std::string& s) {
-        static int8_t T[256];
-        static bool init = false;
-        if (!init) {
-            for (auto& x : T) x = -1;
-            const char* a = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-            for (int i = 0; i < 64; ++i) T[(unsigned char)a[i]] = static_cast<int8_t>(i);
-            init = true;
-        }
-        std::vector<uint8_t> out;
-        int v = 0, b = 0;
-        for (char c : s) {
-            const int x = T[(unsigned char)c];
-            if (x < 0) continue;
-            v = (v << 6) | x; b += 6;
-            if (b >= 8) {
-                b -= 8;
-                out.push_back(static_cast<uint8_t>((v >> b) & 0xff));
-            }
-        }
-        return out;
-    };
-    const auto sig_bytes = b64url_decode(proof_value_b64);
+    ASSERT_EQ(proof_value[0], 'z');
+    const auto sig_bytes = base58_decode(proof_value.substr(1));
     ASSERT_EQ(sig_bytes.size(), kEd25519SignatureBytes);
     std::array<uint8_t, kEd25519SignatureBytes> sig{};
-    std::memcpy(sig.data(), sig_bytes.data(), kEd25519SignatureBytes);
-
+    std::copy(sig_bytes.begin(), sig_bytes.end(), sig.begin());
     EXPECT_FALSE(verify_with_tweetnacl(canonical, sig, pk))
         << "tampered payload should not verify against the original signature";
+}
+
+// --- RFC 8785 ---
+
+TEST(JcsTest, NumbersMatchRfc8785) {
+    // RFC 8785 Appendix B, plus the values SDK scores actually take.
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"0", "0"}, {"-0.0", "0"}, {"0.0", "0"}, {"1.0", "1"},
+        {"5e-324", "5e-324"},
+        {"1.7976931348623157e308", "1.7976931348623157e+308"},
+        {"-1.7976931348623157e308", "-1.7976931348623157e+308"},
+        {"9007199254740992", "9007199254740992"},
+        {"295147905179352830000.0", "295147905179352830000"},
+        {"1e21", "1e+21"}, {"1e20", "100000000000000000000"},
+        {"1e-7", "1e-7"}, {"0.000001", "0.000001"}, {"1e-05", "0.00001"},
+        {"333333333.33333329", "333333333.3333333"},
+        {"4.5", "4.5"}, {"2e-3", "0.002"},
+        {"0.6000000238418579", "0.6000000238418579"},
+    };
+    for (const auto& c : cases) {
+        EXPECT_EQ(jcs_canonicalize("[" + c.first + "]"), "[" + c.second + "]")
+            << c.first;
+    }
+}
+
+TEST(JcsTest, RejectsIntegerBeyondDoublePrecision) {
+    EXPECT_THROW(jcs_canonicalize("[9007199254740993]"), std::invalid_argument);
+}
+
+TEST(JcsTest, KeysSortByUtf16CodeUnit) {
+    // RFC 8785 §3.2.3 example. U+1F600 is D83D DE00 in UTF-16, so it
+    // sorts before U+FB33, the reverse of their UTF-8 byte order.
+    const std::string in =
+        "{\"\u20ac\":1,\"\\r\":2,\"\xF0\x9F\x98\x80\":3,"
+        "\"\xEF\xAC\xB3\":4,\"1\":5,\"\xC2\x80\":6,\"\xC3\xB6\":7}";
+    EXPECT_EQ(jcs_canonicalize(in),
+              "{\"\\r\":2,\"1\":5,\"\xC2\x80\":6,\"\xC3\xB6\":7,"
+              "\"\u20ac\":1,\"\xF0\x9F\x98\x80\":3,\"\xEF\xAC\xB3\":4}");
+}
+
+TEST(JcsTest, StringsStayRawUtf8WithMinimalEscapes) {
+    EXPECT_EQ(jcs_canonicalize(R"(["gr\u00fc\u00df\n\u001f\/"])"),
+              "[\"gr\xC3\xBC\xC3\x9F\\n\\u001f/\"]");
+}
+
+// --- W3C Data Integrity test vectors ---
+//
+// From w3c/vc-di-eddsa TestVectors/eddsa-jcs-2022 and w3c/vc-di-ecdsa
+// TestVectors/ecdsa-jcs-2019-p256.
+
+namespace {
+const char* kW3cUnsigned =
+    R"json({"@context":["https://www.w3.org/ns/credentials/v2","https://www.w3.org/ns/credentials/examples/v2"],"id":"urn:uuid:58172aac-d8ba-11ed-83dd-0b3aef56cc33","type":["VerifiableCredential","AlumniCredential"],"name":"Alumni Credential","description":"A minimum viable example of an Alumni Credential.","issuer":"https://vc.example/issuers/5678","validFrom":"2023-01-01T00:00:00Z","credentialSubject":{"id":"did:example:abcdefgh","alumniOf":"The School of Examples"}})json";
+const char* kW3cCreated = "2023-02-24T23:36:38Z";
+}  // namespace
+
+TEST(W3cVectorTest, Eddsa) {
+    Ed25519SecretKey sk{};
+    const auto seed = hex_decode("c96ef9ea10c5e414c471723aff9de72c35fa5b70fae97e8832ecac7d2e2b8ed6");
+    const auto pub  = hex_decode("b00d8d938e7f773d51565aad36a623f5344f7f5d1960f9cf3e8e12620ea2810f");
+    std::copy(seed.begin(), seed.end(), sk.begin());
+    std::copy(pub.begin(), pub.end(), sk.begin() + 32);
+
+    const auto env = json::parse(sign_envelope_eddsa_jcs(
+        kW3cUnsigned, sk, "did:key:z6MkrJVnaZkeFzdQyMZu1cgjg7k1pZZ6pvBQ7XJPt4swbTQ2#z6MkrJVnaZkeFzdQyMZu1cgjg7k1pZZ6pvBQ7XJPt4swbTQ2", kW3cCreated));
+    EXPECT_EQ(env["proof"]["proofValue"].get<std::string>(),
+              "z2HnFSSPPBzR36zdDgK8PbEHeXbR56YF24jwMpt3R1eHXQzJDMWS93FCzpvJpwTWd3GAVFuUfjoJdcnTMuVor51aX");
+}
+
+TEST(W3cVectorTest, EcdsaSignsCombinedHashAndEncodesRawSignature) {
+    const auto raw = hex_decode("f15c3b599eb9b3cad05df9d8e8b39a70a86375833b53743c764ac0a88c4457d60707fd7d073e03d906130631d87803f80a9824dc9939632ba92d418181be9d16");
+    std::vector<uint8_t> der = {0x30, 0x00, 0x02};
+    const auto append_int = [&der](auto first, auto last) {
+        const bool pad = (*first & 0x80) != 0;
+        der.push_back(static_cast<uint8_t>(32 + (pad ? 1 : 0)));
+        if (pad) der.push_back(0);
+        der.insert(der.end(), first, last);
+    };
+    append_int(raw.begin(), raw.begin() + 32);
+    der.push_back(0x02);
+    append_int(raw.begin() + 32, raw.end());
+    der[1] = static_cast<uint8_t>(der.size() - 2);
+
+    std::vector<uint8_t> signed_bytes;
+    const auto env = json::parse(sign_envelope_via_hw_jcs(
+        kW3cUnsigned,
+        [&](std::string_view message) {
+            signed_bytes.assign(message.begin(), message.end());
+            return der;
+        },
+        "ecdsa-jcs-2019", "did:key:zDnaepBuvsQ8cpsWrVKw8fbpGpvPeNSjVPTWoq6cRqaYzBKVP#zDnaepBuvsQ8cpsWrVKw8fbpGpvPeNSjVPTWoq6cRqaYzBKVP", kW3cCreated));
+
+    EXPECT_EQ(signed_bytes, hex_decode("fe5799489119c7fe3c528715e72bd39d2ec6b4ab345978df32e9a9312648ec2559b7cb6251b8991add1ce0bc83107e3db9dbbab5bd2c28f687db1a03abc92f19"));
+    EXPECT_EQ(env["proof"]["proofValue"].get<std::string>(),
+              "z5ptCet75SaEgzG4v4zJhbJtfNi74Wv7Fq15hhKouJQQjEPQvPZKaYxcMXAMLPQS2FXrkCWokNJkFVkwxNzZfD5oT");
+}
+
+TEST(W3cVectorTest, RejectsMalformedHardwareSignature) {
+    const auto sign_with = [](std::vector<uint8_t> sig) {
+        return sign_envelope_via_hw_jcs(
+            kW3cUnsigned, [&](std::string_view) { return sig; },
+            "ecdsa-jcs-2019", "did:example:k", kW3cCreated);
+    };
+    EXPECT_THROW(sign_with({}), std::runtime_error);
+    EXPECT_THROW(sign_with(std::vector<uint8_t>(64, 0x42)), std::runtime_error);
+    EXPECT_THROW(sign_with({0x30, 0x04, 0x02, 0x7f, 0x01, 0x01}), std::runtime_error);
+}
+
+// --- Fixture shared with tools/evidence-verifier/selftest.py ---
+
+TEST(VerifierFixtureTest, SignedEnvelopeMatchesCommittedFixture) {
+    // A Python verifier reading this file proves C++ and Python agree
+    // on the signed bytes. Non-ASCII, exponent-range floats and an
+    // astral-plane key are the inputs that used to diverge.
+    const std::string unsigned_env = R"json({
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        "type": ["VerifiableCredential", "SentlogEvidence"],
+        "issuer": "did:example:integrator",
+        "validFrom": "2026-05-25T10:00:00.000Z",
+        "credentialSubject": {
+            "envelope_format": "1.0",
+            "evidence_grade": "DeviceUnattested",
+            "payload": {
+                "transcript": {"text": "Grüße aus München — 你好 😀"},
+                "direction": 0.0,
+                "liveness": {"score": 0.6000000238418579, "replay_risk": 1e-05},
+                "😀": 1, "\ufb33": 2,
+                "duration_ms": 1500
+            }
+        }
+    })json";
+    const std::string actual = sign_envelope_eddsa_jcs(
+        unsigned_env, make_test_secret_key(), "did:example:k",
+        "2026-05-25T10:00:00.000Z");
+
+    const std::string path = std::string(SENTLOG_REPO_ROOT) +
+        "/tools/evidence-verifier/fixtures/cpp_signed_envelope.json";
+    if (std::getenv("SENTLOG_UPDATE_FIXTURES") != nullptr) {
+        std::ofstream(path) << actual << "\n";
+    }
+    std::ifstream file(path);
+    ASSERT_TRUE(file.is_open());
+    std::string expected;
+    std::getline(file, expected);
+    EXPECT_EQ(actual, expected);
 }
