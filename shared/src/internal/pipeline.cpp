@@ -251,7 +251,7 @@ std::string Pipeline::run(const Config& config,
         failure_reason = "TooShort";
     } else if (!vad_report.has_speech()) {
         failure_reason = "NoSpeechDetected";
-    } else if (snr_db > 0.0f && snr_db < 3.0f) {
+    } else if (snr_db < 3.0f) {
         failure_reason = "TooNoisy";
     }
     // Language mismatch is decided inside the transcript block below;
@@ -545,7 +545,9 @@ std::string Pipeline::run(const Config& config,
     result["evidence_grade"] = "DeviceUnattested";
     result["extensions"]     = json::object();
 
-    return result.dump();
+    // Replace rather than throw: invalid UTF-8 from a push API shouldn't
+    // cost the whole evaluation.
+    return result.dump(-1, ' ', false, json::error_handler_t::replace);
 }
 
 }  // namespace sentlog::internal

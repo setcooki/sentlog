@@ -292,6 +292,10 @@ UpdateResult {
     update_found:     Boolean
     previous_version: String
     new_version:      String?
+    bundle_url:       String?       // bundle_* and issued_at_ms set with new_version
+    bundle_sha256:    String?
+    bundle_size:      Long?
+    issued_at_ms:     Long?
     applied:          Boolean
     error:            String?
 }
@@ -329,7 +333,7 @@ TelemetryEvent =
     | ModelLoadError            { model: String, reason: String }
     | PermissionDenied          { permission: "microphone"|"motion"|"camera" }
     | CaptureAborted            { reason: String }
-    | HardwareSigningUnavailable { reason: String, fell_back_to: "software_ed25519" }
+    | HardwareSigningUnavailable { reason: String, fell_back_to: "software_ed25519"|"none" }
     | TsaRequestFailed          { tsa_url: String, reason: String }
 
 // The list above is exhaustive — no other event types are emitted.
@@ -351,7 +355,7 @@ SentlogConfig {
     challenge_enabled:     Boolean = true
     language_hint:         String = "en"
     min_duration_ms:       Int = 5000
-    max_duration_ms:       Int = 60000
+    max_duration_ms:       Int = 60000             // at most 65536
     target_phrase:         String? = null
 
     // multi-modal (all opt-in)

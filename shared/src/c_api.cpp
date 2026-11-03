@@ -313,15 +313,18 @@ sentlog_status_t sentlog_check_for_updates(sentlog_handle_t* handle,
                                            void* userdata) {
     if (handle == nullptr) return SENTLOG_ERR_INVALID_STATE;
     if (cb == nullptr)     return SENTLOG_ERR_INVALID_CONFIG;
+    std::string update_json;
+    sentlog_status_t status;
     try {
-        std::string update_json;
-        const sentlog_status_t s = handle->state->check_for_updates(
+        status = handle->state->check_for_updates(
             manifest_bytes, manifest_len, &update_json);
-        cb(s, update_json.c_str(), userdata);
-        return s;
     } catch (...) {
-        return SENTLOG_ERR_INVALID_STATE;
+        status = SENTLOG_ERR_INTERNAL;
+        update_json.clear();
     }
+    // Always fire: bindings suspend until the callback runs.
+    cb(status, update_json.empty() ? nullptr : update_json.c_str(), userdata);
+    return status;
 }
 
 int sentlog_drain_queue(sentlog_handle_t* handle,
@@ -347,53 +350,69 @@ int sentlog_drain_queue(sentlog_handle_t* handle,
     // the unlinked old version. LocalQueueSink's append takes the
     // same sidecar lock. POSIX-only; a Windows port would use
     // LockFileEx on a sidecar.
+    //
+    // The sidecar lock is held only around file access, never across
+    // the callback: an integrator's upload can take minutes, and its
+    // callback may call evaluate, which appends under the same lock.
+    // A second lock serialises drains. It's non-blocking so a nested or
+    // concurrent drain returns 0 rather than deadlocking.
+    const std::string drain_lock_path = std::string(path) + ".drain";
+    const int drainfd = ::open(drain_lock_path.c_str(), O_RDWR | O_CREAT, 0600);
+    if (drainfd < 0) return 0;
+    if (::flock(drainfd, LOCK_EX | LOCK_NB) != 0) { ::close(drainfd); return 0; }
+
     const std::string lock_path = std::string(path) + ".lock";
-    const int lockfd = ::open(lock_path.c_str(),
-                              O_RDWR | O_CREAT, 0600);
-    if (lockfd < 0) return 0;
-    if (::flock(lockfd, LOCK_EX) != 0) { ::close(lockfd); return 0; }
+    const int lockfd = ::open(lock_path.c_str(), O_RDWR | O_CREAT, 0600);
+    if (lockfd < 0) { ::close(drainfd); return 0; }
+    const auto finish = [&](int result) {
+        ::close(lockfd);   // releases the flock
+        ::close(drainfd);
+        return result;
+    };
+
+    const auto read_lines = [&path]() {
+        std::vector<std::string> lines;
+        std::ifstream in(path);
+        for (std::string line; std::getline(in, line);) {
+            if (!line.empty()) lines.push_back(line);
+        }
+        return lines;
+    };
+
+    if (::flock(lockfd, LOCK_EX) != 0) return finish(0);
+    const std::vector<std::string> snapshot = read_lines();
+    ::flock(lockfd, LOCK_UN);
 
     int delivered = 0;
     std::vector<std::string> kept;
-    {
-        std::ifstream in(path);
-        if (!in.is_open()) {
-            ::flock(lockfd, LOCK_UN);
-            ::close(lockfd);
-            return 0;
-        }
-        std::string line;
-        while (std::getline(in, line)) {
-            if (line.empty()) continue;
-            ++delivered;
-            const int keep = cb(line.c_str(), line.size(), userdata) == 1
-                ? 0   // cb returned 1 → delete
-                : 1;  // cb returned 0 (or anything else) → keep
-            if (keep) kept.push_back(line);
-        }
+    for (const auto& line : snapshot) {
+        ++delivered;
+        if (cb(line.c_str(), line.size(), userdata) != 1) kept.push_back(line);
     }
+    if (kept.size() == snapshot.size()) return finish(delivered);
 
-    // Rewrite if we removed any entries.
-    if (kept.size() != static_cast<size_t>(delivered)) {
-        const std::string tmp = std::string(path) + ".drain.tmp";
-        {
-            std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-            if (!out.is_open()) {
-                ::flock(lockfd, LOCK_UN);
-                ::close(lockfd);
-                return delivered;
-            }
-            for (const auto& k : kept) out << k << "\n";
-        }
-        // std::rename atomically replaces on POSIX (Linux, macOS,
-        // iOS, Android NDK). On Windows it would fail when the
-        // target exists; we don't ship Windows.
-        std::rename(tmp.c_str(), path);
+    // Rewrite under the lock. Writers only append while this drain holds
+    // its lock, so anything past the snapshot arrived during callbacks.
+    if (::flock(lockfd, LOCK_EX) != 0) return finish(delivered);
+    const std::vector<std::string> current = read_lines();
+    for (size_t i = snapshot.size(); i < current.size(); ++i) {
+        kept.push_back(current[i]);
     }
-
-    ::flock(lockfd, LOCK_UN);
-    ::close(lockfd);
-    return delivered;
+    // On any failure the original stays in place: delivery is
+    // at-least-once, so re-sending beats losing evidence.
+    const std::string tmp = std::string(path) + ".drain.tmp";
+    std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) return finish(delivered);
+    for (const auto& k : kept) out << k << "\n";
+    out.close();
+    const bool written = !out.fail();
+    // std::rename atomically replaces on POSIX (Linux, macOS, iOS,
+    // Android NDK). On Windows it would fail when the target exists;
+    // we don't ship Windows.
+    if (!written || std::rename(tmp.c_str(), path) != 0) {
+        std::remove(tmp.c_str());
+    }
+    return finish(delivered);
 }
 
 void sentlog_string_free(char* str) {

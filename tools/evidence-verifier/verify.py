@@ -209,7 +209,7 @@ def verify_envelope(envelope: Any, pubkey_bytes: bytes) -> tuple[bool, str]:
     proof_config = {k: v for k, v in proof.items() if k != "proofValue"}
     try:
         message = signing_input(document, proof_config)
-    except ValueError as e:
+    except (ValueError, RecursionError) as e:
         return False, f"envelope can't be canonicalized: {e}"
 
     try:
@@ -280,7 +280,7 @@ def main(argv: list[str]) -> int:
     except OSError as e:
         print(f"could not load envelope: {e}", file=sys.stderr)
         return 3
-    except ValueError as e:  # includes json.JSONDecodeError
+    except (ValueError, RecursionError) as e:  # ValueError covers JSONDecodeError
         print(f"malformed envelope: {e}", file=sys.stderr)
         return 2
 

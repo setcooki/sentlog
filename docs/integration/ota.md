@@ -123,6 +123,19 @@ bundle download itself is verified via `bundle_sha256` +
 `bundle_size`, which the manifest carries; verify these before
 swapping.
 
+## What `update_found` means
+
+`update_found` is `true` only when the signed `manifest_version` is
+strictly newer than the loaded version, compared as
+`MAJOR.MINOR.PATCH[-prerelease]`. An older, equal or unparseable version
+reports `false`, so replaying an old signed manifest can't offer a
+downgrade to the loaded version.
+
+When it's `true`, the result also carries the verified `bundle_url`,
+`bundle_sha256`, `bundle_size` and `issued_at_ms`. The SDK doesn't download
+or apply bundles. If you do, check the hash and size before using the
+bundle, and persist the highest applied version across launches.
+
 ## Verification failures
 
 When the manifest signature doesn't verify (tampered, wrong key,

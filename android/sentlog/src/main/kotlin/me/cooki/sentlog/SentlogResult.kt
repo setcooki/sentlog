@@ -140,6 +140,10 @@ public data class UpdateResult(
     @SerialName("update_found")     val updateFound:    Boolean,
     @SerialName("previous_version") val previousVersion: String,
     @SerialName("new_version")      val newVersion:     String? = null,
+    @SerialName("bundle_url")       val bundleUrl:       String? = null,
+    @SerialName("bundle_sha256")    val bundleSha256:    String? = null,
+    @SerialName("bundle_size")      val bundleSize:      Long?   = null,
+    @SerialName("issued_at_ms")     val issuedAtMs:      Long?   = null,
     val applied: Boolean,
     val error:   String? = null,
 )

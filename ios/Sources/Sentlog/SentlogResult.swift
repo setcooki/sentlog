@@ -172,6 +172,10 @@ public struct UpdateResult: Codable, Sendable, Equatable {
     public let updateFound:     Bool
     public let previousVersion: String
     public let newVersion:      String?
+    public let bundleUrl:       String?
+    public let bundleSha256:    String?
+    public let bundleSize:      Int64?
+    public let issuedAtMs:      Int64?
     public let applied:         Bool
     public let error:           String?
 
@@ -180,6 +184,10 @@ public struct UpdateResult: Codable, Sendable, Equatable {
         case checkedAtMs     = "checked_at_ms"
         case updateFound     = "update_found"
         case previousVersion = "previous_version"
+        case bundleUrl       = "bundle_url"
+        case bundleSha256    = "bundle_sha256"
+        case bundleSize      = "bundle_size"
+        case issuedAtMs      = "issued_at_ms"
         case newVersion      = "new_version"
     }
 }
