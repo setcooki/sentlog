@@ -61,7 +61,9 @@ One per dispatch attempt per forwarder. Outcomes:
   dispatcher (HTTP / webhook / callback) OR was written to the
   local-queue file. `attempts = 1` (the SDK has no forwarder HTTP sender and
   no retry; your dispatcher does the delivery and any retrying). So `ok`
-  doesn't mean the destination received it.
+  doesn't mean the destination received it, and it's still reported if
+  your dispatcher fails or throws. Track delivery failures in the
+  dispatcher.
 - `dropped` — envelope was not delivered. Possible reasons (not yet
   surfaced as a field, but inferable from configuration):
   - sampling: `sample_rate < 1.0` and this run rolled below
@@ -72,7 +74,8 @@ One per dispatch attempt per forwarder. Outcomes:
   - `tsa_required_failed`
   - `unknown_projection`
 
-The `retry` outcome is defined in the union but not emitted yet.
+The `retry` outcome is defined in the union but never emitted, because the
+SDK doesn't retry.
 
 ### `CaptureAborted`
 
