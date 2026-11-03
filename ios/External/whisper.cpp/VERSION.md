@@ -19,8 +19,8 @@ backend tries to look up its shader bundle. Upstream removed
 which requires a brew/pkg-config install), so there's no upstream
 tag to point at that works with SwiftPM as-is.
 
-Vendoring lets us write a corrected `Package.swift` while pinning to
-the same v1.7.1 source the Android `FetchContent` declaration in
+Vendoring lets us declare the target correctly in the root
+[`Package.swift`](../../../Package.swift) while pinning to the same v1.7.1 source the Android `FetchContent` declaration in
 [`android/sentlog/src/main/cpp/CMakeLists.txt`](../../../android/sentlog/src/main/cpp/CMakeLists.txt)
 points at, so both platforms run identical bytes per ADR 0009.
 
@@ -32,6 +32,13 @@ download scripts, CUDA/SYCL/Vulkan backends — are skipped. The
 `bindings/`, `examples/`, `models/`, `scripts/` etc. dirs from
 upstream are *not* present in this vendor.
 
+The Metal files are vendored but not compiled: `WhisperRunner` runs on
+the CPU, and building `ggml-metal.m` needs `-fno-objc-arc`, which SwiftPM
+rejects in a package that apps depend on by version.
+
+`include/ggml.h` is a symlink we add, so `whisper.h` can find it through
+the target's single public header directory. Keep it when bumping.
+
 ## Bumping the pin
 
 1. Download the new tag tarball:
@@ -41,8 +48,8 @@ upstream are *not* present in this vendor.
    ```
 
 2. Replace the contents under this directory with the same file set
-   (see `Package.swift`'s `sources:` / `publicHeadersPath:` / private
-   headers under `ggml/src/`). Keep this `Package.swift` and `VERSION.md`.
+   (see the `whisper` target's `sources:` / `publicHeadersPath:` in the root
+   `Package.swift` / private headers under `ggml/src/`). Keep `VERSION.md`.
 
 3. Update the Android `FetchContent` pin in
    [`android/sentlog/src/main/cpp/CMakeLists.txt`](../../../android/sentlog/src/main/cpp/CMakeLists.txt)

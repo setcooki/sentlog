@@ -27,6 +27,7 @@ tools/bridge-compile/libs/
 
 # iOS
 .build/
+/Package.resolved
 .swiftpm/
 DerivedData/
 *.xcuserstate

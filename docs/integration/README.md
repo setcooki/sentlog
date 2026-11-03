@@ -24,10 +24,17 @@ section covers *how* — by feature, not by API.
 
 | Stack | SDK package |
 |---|---|
-| Native iOS (Swift) | `Sentlog` Swift Package (`ios/Package.swift`) |
+| Native iOS (Swift) | `Sentlog` Swift Package (repo root [`Package.swift`](../../Package.swift)) |
 | Native Android (Kotlin) | `me.cooki.sentlog:sentlog` AAR (`android/sentlog/`) |
 | React Native | `@sentlog/react-native` (`rn/`) |
 | Capacitor | `@sentlog/capacitor` (`capacitor/`) |
+
+On iOS, add the repository URL as a Swift package dependency, with an iOS
+16 deployment target:
+`.package(url: "https://github.com/setcooki/sentlog.git", branch: "main")`.
+Use `branch` until the first tagged release. The bridges' iOS requirements
+are in [`rn/README.md`](../../rn/README.md) and
+[`capacitor/README.md`](../../capacitor/README.md).
 
 Every binding exposes the same core surface — `initialize`, `startCapture`,
 `evaluate`, `cancel`, `destroy`, `getPermissions`, `getCapabilities`,

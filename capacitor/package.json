@@ -11,6 +11,7 @@
     "src",
     "android",
     "ios",
+    "Package.swift",
     "package.json",
     "README.md"
   ],

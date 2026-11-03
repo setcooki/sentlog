@@ -95,7 +95,8 @@ sentlog/
 ├── CLAUDE.md              # AI-coded contribution guidelines
 ├── shared/                # C++17 core — narrow C ABI, heavily tested
 ├── android/               # AAR (Kotlin + JNI)
-├── ios/                   # Swift package (Swift + C interop)
+├── Package.swift          # Swift package manifest
+├── ios/                   # Swift binding (Swift + C interop)
 ├── rn/                    # @sentlog/react-native
 ├── capacitor/             # @sentlog/capacitor
 ├── models/                # training + quantisation pipelines (not bundled)

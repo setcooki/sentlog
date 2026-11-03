@@ -39,7 +39,7 @@ The script:
    (`android/sentlog/src/main/assets/`, `ios/Sources/Sentlog/Resources/`).
 
 After the script copies the iOS file you must also uncomment the
-`.copy("Resources/aasist_l.onnx")` line in [`ios/Package.swift`](../../ios/Package.swift)
+`.copy("Resources/aasist_l.onnx")` line in [`Package.swift`](../../Package.swift)
 in the same commit — SwiftPM only bundles resources that are
 explicitly declared. Without that edit, `Bundle.module.url(...)`
 returns nil and the iOS runner stays in placeholder mode even
