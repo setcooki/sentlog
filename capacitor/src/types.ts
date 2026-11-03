@@ -316,7 +316,7 @@ export type EnvelopeDispatcher = (
 
 /** Phase 4i drain callback. Return `true` to delete the envelope
  *  from the queue, `false` to keep it for a later drain. */
-export type DrainHandler = (envelope_json: string) => boolean;
+export type DrainHandler = (envelope_json: string) => boolean | Promise<boolean>;
 
 // ----- the Sentlog public surface (shape both bridges expose) ---
 

@@ -93,6 +93,52 @@ jobs:
         working-directory: android
         run: gradle :sentlog:testDebugUnitTest --no-daemon
 
+  bridges-android:
+    name: bridges (Android compile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358 cmake;3.22.1"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install bridge packages
+        run: |
+          npm ci --prefix rn --no-audit --no-fund --silent
+          npm ci --prefix capacitor --no-audit --no-fund --silent
+
+      - name: Set up Gradle for the SDK
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "9.8.2"
+          cache-read-only: false
+
+      - name: Build SDK AAR
+        working-directory: android
+        run: gradle :sentlog:assembleDebug --no-daemon
+
+      # Capacitor pins AGP 8.13, which doesn't run on Gradle 9.8.
+      - name: Set up Gradle for host-app builds
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.14.3"
+          cache-read-only: false
+
+      - name: Compile RN + Capacitor Android code
+        run: tools/bridge-compile/run.sh gradle
+
   ios-spm:
     name: ios (Swift Package)
     runs-on: macos-14

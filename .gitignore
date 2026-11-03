@@ -20,6 +20,7 @@ compile_commands.json
 .gradle/
 local.properties
 .cxx/
+tools/bridge-compile/libs/
 *.apk
 *.aab
 

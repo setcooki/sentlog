@@ -66,7 +66,46 @@ public struct SentlogConfig: Codable, Sendable, Equatable {
     public var manifestUrl:     String?
     public var manifestPubkeys: [String]?
 
+    // MARK: scoring (docs/scoring-weights.md)
+
+    /// Overrides for the published defaults; nil keeps them all.
+    public var scoringWeights: [String: Float]?
+
     public init() {}
+
+    /// Absent keys keep the defaults above. Synthesized Decodable would
+    /// require every key, but JS bridge configs are mostly optional.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func read<T: Decodable>(_ key: CodingKeys, _ fallback: T) throws -> T {
+            try c.decodeIfPresent(T.self, forKey: key) ?? fallback
+        }
+        livenessThreshold       = try read(.livenessThreshold, livenessThreshold)
+        engagementThreshold     = try read(.engagementThreshold, engagementThreshold)
+        directionThreshold      = try read(.directionThreshold, directionThreshold)
+        minConfidence           = try read(.minConfidence, minConfidence)
+        challengeEnabled        = try read(.challengeEnabled, challengeEnabled)
+        languageHint            = try read(.languageHint, languageHint)
+        minDurationMs           = try read(.minDurationMs, minDurationMs)
+        maxDurationMs           = try read(.maxDurationMs, maxDurationMs)
+        targetPhrase            = try c.decodeIfPresent(String.self, forKey: .targetPhrase)
+        useMotionSensors        = try read(.useMotionSensors, useMotionSensors)
+        useVideoAffect          = try read(.useVideoAffect, useVideoAffect)
+        useDeviceIntegrity      = try read(.useDeviceIntegrity, useDeviceIntegrity)
+        issuer                  = try read(.issuer, issuer)
+        signingKeyId            = try c.decodeIfPresent(String.self, forKey: .signingKeyId)
+        useHardwareSigning      = try read(.useHardwareSigning, useHardwareSigning)
+        hardwareSigningRequired = try read(.hardwareSigningRequired, hardwareSigningRequired)
+        tsaEndpoint             = try c.decodeIfPresent(String.self, forKey: .tsaEndpoint)
+        tsaTimeoutMs            = try read(.tsaTimeoutMs, tsaTimeoutMs)
+        tsaRequired             = try read(.tsaRequired, tsaRequired)
+        sessionId               = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        companionEvidenceRefs   = try read(.companionEvidenceRefs, companionEvidenceRefs)
+        forwarders              = try read(.forwarders, forwarders)
+        manifestUrl             = try c.decodeIfPresent(String.self, forKey: .manifestUrl)
+        manifestPubkeys         = try c.decodeIfPresent([String].self, forKey: .manifestPubkeys)
+        scoringWeights          = try c.decodeIfPresent([String: Float].self, forKey: .scoringWeights)
+    }
 
     /// Throws if any field is in a structurally invalid state. Called
     /// from `Sentlog.initialize` so the integrator gets the error at
@@ -106,6 +145,7 @@ public struct SentlogConfig: Codable, Sendable, Equatable {
         case forwarders
         case manifestUrl             = "manifest_url"
         case manifestPubkeys         = "manifest_pubkeys"
+        case scoringWeights          = "scoring_weights"
     }
 }
 
@@ -115,19 +155,34 @@ public struct Forwarder: Codable, Sendable, Equatable {
     public var sampleRate:  Float = 1.0
     public var sink:        JSONValue           // sink-kind + sink-specific fields, opaque
     public var retry:       RetryPolicy = RetryPolicy()
+    /// Dotted result paths. Required for `.custom`, rejected otherwise.
+    public var customFields: [String]?
 
     private enum CodingKeys: String, CodingKey {
         case name, projection, sink, retry
-        case sampleRate = "sample_rate"
+        case sampleRate   = "sample_rate"
+        case customFields = "custom_fields"
     }
 
     public init(name: String, projection: Projection, sink: JSONValue,
-                sampleRate: Float = 1.0, retry: RetryPolicy = RetryPolicy()) {
+                sampleRate: Float = 1.0, retry: RetryPolicy = RetryPolicy(),
+                customFields: [String]? = nil) {
         self.name = name
         self.projection = projection
         self.sink = sink
         self.sampleRate = sampleRate
         self.retry = retry
+        self.customFields = customFields
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name         = try c.decode(String.self, forKey: .name)
+        projection   = try c.decode(Projection.self, forKey: .projection)
+        sink         = try c.decode(JSONValue.self, forKey: .sink)
+        sampleRate   = try c.decodeIfPresent(Float.self, forKey: .sampleRate) ?? 1.0
+        retry        = try c.decodeIfPresent(RetryPolicy.self, forKey: .retry) ?? RetryPolicy()
+        customFields = try c.decodeIfPresent([String].self, forKey: .customFields)
     }
 }
 
@@ -153,6 +208,14 @@ public struct RetryPolicy: Codable, Sendable, Equatable {
         self.initialDelayMs = initialDelayMs
         self.maxDelayMs = maxDelayMs
         self.backoff = backoff
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        maxAttempts    = try c.decodeIfPresent(Int.self, forKey: .maxAttempts) ?? 3
+        initialDelayMs = try c.decodeIfPresent(Int.self, forKey: .initialDelayMs) ?? 1_000
+        maxDelayMs     = try c.decodeIfPresent(Int.self, forKey: .maxDelayMs) ?? 60_000
+        backoff        = try c.decodeIfPresent(Backoff.self, forKey: .backoff) ?? .exponential
     }
 
     private enum CodingKeys: String, CodingKey {

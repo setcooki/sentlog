@@ -89,4 +89,43 @@ class SentlogConfigSerializationTest {
         val deserialised = json.decodeFromString(SentlogConfig.serializer(), serialised)
         assertEquals(cfg, deserialised)
     }
+
+    @Test
+    fun `absent custom fields and weights stay off the wire`() {
+        // The core rejects custom_fields on any non-Custom projection.
+        val cfg = SentlogConfig(
+            issuer = "did:example:integrator",
+            forwarders = listOf(
+                Forwarder(
+                    name = "a",
+                    projection = Projection.Full,
+                    sink = buildJsonObject { put("kind", "callback") },
+                ),
+            ),
+        )
+        val strict = Json { encodeDefaults = true; explicitNulls = false }
+        val text = strict.encodeToString(SentlogConfig.serializer(), cfg)
+        assertTrue(!text.contains("custom_fields"))
+        assertTrue(!text.contains("scoring_weights"))
+    }
+
+    @Test
+    fun `custom fields and weights reach the wire when set`() {
+        val cfg = SentlogConfig(
+            issuer = "did:example:integrator",
+            scoringWeights = mapOf("presence.motion" to 1.5f),
+            forwarders = listOf(
+                Forwarder(
+                    name = "a",
+                    projection = Projection.Custom,
+                    sink = buildJsonObject { put("kind", "callback") },
+                    customFields = listOf("liveness.score"),
+                ),
+            ),
+        )
+        val strict = Json { encodeDefaults = true; explicitNulls = false }
+        val text = strict.encodeToString(SentlogConfig.serializer(), cfg)
+        assertTrue(text.contains("\"custom_fields\":[\"liveness.score\"]"))
+        assertTrue(text.contains("\"scoring_weights\":{\"presence.motion\":1.5}"))
+    }
 }
