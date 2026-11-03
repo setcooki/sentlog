@@ -85,8 +85,8 @@ architecture review triggered.
   Core ML acceleration (whisper.cpp's encoder-as-CoreML path) and
   Android Vulkan/GPU acceleration are tracked follow-ups that land
   after the Phase 2 benchmark gate confirms the CPU baseline meets
-  thresholds. Android still uses LiteRT for prosody/affect heads in
-  later phases — that's unrelated to ASR.
+  thresholds. Other platform-side inference uses ONNX Runtime
+  ([ADR 0009](./adr/0009-platform-side-ml-inference.md)); that's unrelated to ASR.
 - `Transcript` populated in `SentlogResult` (text, language,
   confidence, word_timings). Direction scoring uses the same transcript.
 - Language gating: non-English clips return reduced confidence with a
@@ -125,7 +125,8 @@ integration test.
   `CallbackSink`.
 - Seven projections: `Full`, `Full+AudioClip`, `ScoresOnly`,
   `TranscriptOnly`, `EvidenceFingerprint`, `EvidenceClip`, `Custom`.
-- Retry/backoff per forwarder; sampling per forwarder.
+- Sampling per forwarder. Not implemented yet: retry/backoff per
+  forwarder; delivery and retry belong to the integrator's dispatcher.
 - Opus encoding (32 kbps mono) for clip projections, on-demand only.
 - **VC 2.0 envelope construction** per the spec. Envelope built with
   `@context`, `type`, `issuer`, `credentialSubject`, `proof` populated
@@ -202,8 +203,9 @@ closing audit):
 
 ### Phase 5 — Video affect + permissions (Weeks 9–10)
 
-- Video affect module: MediaPipe Face Mesh on Android, Vision face
-  landmarks on iOS. 10–15 Hz sampling during utterance. Small affect
+- Video affect module: integrator-run landmark detection (MediaPipe Face
+  Mesh on Android, Vision face landmarks on iOS; neither is an SDK
+  dependency). 10–15 Hz sampling during utterance. Small affect
   head: valence, arousal, dominant FAU.
 - `affect` field on `SentlogResult`; contributes
   `engagement.face_score`.
@@ -294,9 +296,9 @@ not after it.
   `.d.ts` so they cannot drift.
 - Binary fields (fingerprint bytes, signed envelopes) base64-encoded
   across the bridge.
-- Sample apps for each: a minimal RN screen and a minimal Svelte/Ionic
-  + Capacitor page that call `Sentlog.evaluate()` and display the
-  result. Both ship in `tools/sample-react-native/` and
+- Samples for each: a minimal RN screen and a minimal Capacitor page,
+  as snippets to copy into your own app rather than runnable apps, that
+  call `Sentlog.evaluate()` and display the result. Both ship in `tools/sample-react-native/` and
   `tools/sample-capacitor/`.
 
 Exit: both npm packages publishable as `0.x` prereleases; sample apps
@@ -310,7 +312,9 @@ tool. Soak runs in parallel through weeks 14–16.
 
 - OTA model update via signed manifest with two rotatable pinned keys.
   Exposed as `Sentlog.checkForUpdates() -> UpdateResult`. `evaluate()`
-  never blocks on OTA.
+  never blocks on OTA. Not implemented yet: a Sentlog-published manifest;
+  `models/manifest/` holds only `.gitkeep`, and the default URL and keys
+  are placeholders.
 - **Custom manifest URL + integrator-supplied signing keys** wired
   through. SDK defaults remain the Sentlog-published manifest URL and
   Sentlog public keys; integrators override `manifest_url` *and*
@@ -318,8 +322,8 @@ tool. Soak runs in parallel through weeks 14–16.
   at init with a typed error. Verification logic is the same
   Ed25519/SHA-256 path used for the Sentlog-published manifest.
 - **Hardware-backed signing**: iOS Secure Enclave ECDSA-P256, Android
-  KeyStore Ed25519 (API 33+) or ECDSA-P256 (API 31–32) with StrongBox
-  where available. Opt-in via `use_hardware_signing`;
+  KeyStore ECDSA-P256 with StrongBox where available (Ed25519 on API 33+
+  through a custom signer). Opt-in via `use_hardware_signing`;
   `hardware_signing_required=true` enforces it. Successful enclave
   signing promotes `evidence_grade` to `EnclaveSigned`. Software
   fallback emits a `HardwareSigningUnavailable` telemetry event.
@@ -492,16 +496,16 @@ Estimated 3–4 weeks of work when scheduled.
 ### 3.1 Testing
 
 - gtest for scoring assembly, threshold logic, manifest verification,
-  config validation, fingerprint generation, forwarder retry/queue
-  logic.
+  config validation, fingerprint generation, forwarder queue logic.
 - Golden fixtures (~50–80 audio/motion/face fixtures), expected score
   ranges, run on every PR.
 - Platform smoke (`connectedAndroidTest`, XCTest) drives `evaluate()`
   against bundled fixtures.
 - Macrobenchmark + Xcode Metrics nightly on three target devices.
 - API stability snapshot tests for Kotlin and Swift surfaces.
-- Forwarder pipeline tests: HTTP retries, queue overflow, sampling
-  fidelity, projection correctness.
+- Forwarder pipeline tests: sampling fidelity, projection correctness.
+  Not implemented yet: HTTP retries and queue-size limits, so nothing to
+  test there.
 - Integrator misuse coverage: malformed configs, lifecycle violations,
   permission denials.
 - Two-week soak before v1.0.
@@ -522,7 +526,7 @@ ID. No user identifier. No transcription content. No video frames.
 | Android inference speed on mid-range | UX breaking if pipeline > 12s | Benchmark gate (§2); ACFT baseline | Unvalidated until Week 2 |
 | Voice-cloning attacks at scale | Cross-generator liveness 55–80% | Multi-modal scoring; per-attack-class reporting; lip-sync deliberately deferred as cheap-to-activate reserve weapon | Partial — deliberate |
 | AASIST-L pretrained weight licence | (Resolved — was: 4-week slip if non-permissive) | `clovaai/aasist` repo + weights MIT; ASVspoof 2019-LA training data ODC-BY 1.0. Attributions in `THIRD_PARTY_NOTICES.md`. | Resolved — see ADR 0004 |
-| Upstream OSS dependency drift | whisper.cpp / Silero / MediaPipe stagnate or break | Pin to specific upstream versions; monthly health check; budget for in-house maintenance fork if any project goes silent for 6+ months | Tracking |
+| Upstream OSS dependency drift | whisper.cpp / Silero / ONNX Runtime stagnate or break | Pin to specific upstream versions; monthly health check; budget for in-house maintenance fork if any project goes silent for 6+ months | Tracking |
 | Engagement model cold start | First 5–7 months scored against thin model | `engagement_model_status` field surfaces truth; integrators forbidden to display engagement until `"trained"` | Managed |
 | Gaming at $0.01 scale | Fraudulent submissions reduce pool value | Multi-modal catches farms; fingerprint forwarding catches duplicates | Addressed |
 | Self-labelled corpus pace | Engagement timeline depends on labelling throughput | Revised to Months 5–7; labelling budget Phase 0 question | Managed |

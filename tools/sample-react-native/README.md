@@ -9,20 +9,9 @@ and follow the integration steps below.
 
 ## Install
 
-```bash
-# Inside your RN app:
-npm install @sentlog/react-native
-
-# iOS only:
-cd ios && pod install && cd ..
-```
-
-The Sentlog native SDK (Kotlin AAR + Swift SPM target) must also
-be on your build's classpath. Until we publish to Maven Central /
-SwiftPM mirror in a Phase 7 follow-up, integrators wire the
-underlying SDK via a local file dep or a private repo. See the
-`rn/android/build.gradle` and `rn/ios/SentlogRn.podspec` for the
-exact coordinates each platform expects.
+The package isn't published to npm yet, and iOS install isn't possible
+yet. See [`rn/README.md`](../../rn/README.md) for the current state and
+what Android needs.
 
 ## Permissions
 
@@ -59,8 +48,7 @@ See `App.tsx` in this directory. The flow is:
 - Initialize + startCapture + evaluate, with a happy-path render
   of the result.
 - Subscribing to telemetry events (`onTelemetry`) for diagnostics.
-- Drain-queue example for local-queue forwarders.
-- Permission-denied recovery loop.
+- Surfacing a permission-denied error.
 
-It does NOT show: video-affect UX (still in Phase 5.5), TSA
-timestamping (still in Phase 4.5), OTA updates (Phase 7).
+It does NOT show: drain queue, video-affect UX, TSA timestamping, OTA
+updates.

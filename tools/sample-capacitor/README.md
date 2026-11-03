@@ -9,19 +9,9 @@ snippets into your own page.
 
 ## Install
 
-```bash
-# Inside your Capacitor app:
-npm install @sentlog/capacitor
-npx cap sync
-```
-
-The Sentlog native SDK (Kotlin AAR + Swift SPM target) must also be
-on your build's classpath. Until we publish to Maven Central /
-SwiftPM mirror in a Phase 7 follow-up, integrators wire the
-underlying SDK via a local file dep or a private repo. See
-`capacitor/android/build.gradle` and
-`capacitor/ios/SentlogCapacitor.podspec` for the dependency
-coordinates each platform expects.
+The package isn't published to npm yet, and iOS install isn't possible
+yet. See [`capacitor/README.md`](../../capacitor/README.md) for the
+current state and what Android needs.
 
 ## Permissions
 
@@ -50,5 +40,4 @@ sample: `initialize` → optional `setSigningKey` /
 - Drain-queue example for local-queue forwarders.
 - Permission-denied error reporting.
 
-It does NOT show: video-affect UX (Phase 5.5), TSA timestamping
-(Phase 4.5), OTA updates (Phase 7).
+It does NOT show: video-affect UX, TSA timestamping, OTA updates.

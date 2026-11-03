@@ -347,11 +347,10 @@ export interface SentlogBridge {
     /** Versions of loaded models. */
     modelVersions(): Promise<ModelVersions>;
 
-    /** Check for an OTA model update (Phase 7 stub returns no-update today). */
     /** Verify a fetched signed manifest envelope (spec §5.1) against
-     *  the configured pubkeys. The HTTPS fetch is the integrator's
-     *  responsibility today; a no-argument overload that performs the
-     *  fetch internally lands in 7b-ii. */
+     *  the configured pubkeys. The JS bridges expose only this form:
+     *  fetch the manifest yourself. The native SDKs also have a
+     *  no-argument overload that does the fetch. */
     checkForUpdates(manifestJson: string): Promise<UpdateResult>;
 
     /** Drain a local-queue NDJSON file. */

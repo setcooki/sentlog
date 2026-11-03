@@ -95,8 +95,8 @@ before reporting:
 - **Demographic bias inherited from upstream models.** Documented in
   the technical specification.
 - **The SDK does not request permissions on the integrator's behalf.**
-  Permission denials surface in diagnostics; this is the documented
-  behaviour.
+  `startCapture()` throws when the microphone permission is denied; this
+  is the documented behaviour.
 
 ## Hall of fame
 

@@ -31,6 +31,10 @@ Compared to the alternatives:
 per RFC 8032; no RNG needed. Used by
 [`shared/src/internal/signing.{h,cpp}`](../../src/internal/signing.h).
 
+`crypto_sign_open(m, mlen, sm, smlen, pk)` — Ed25519 verify. Used by
+[`shared/src/internal/ota.cpp`](../../src/internal/ota.cpp) to verify
+signed manifests.
+
 We do NOT generate keypairs in the SDK — the integrator supplies a
 signing key via the C ABI's `sentlog_set_signing_key`. That means
 the tweetnacl `extern void randombytes(...)` symbol is satisfied by

@@ -14,7 +14,8 @@ app serves.
 
 ## Event reference
 
-Every event is a JSON object with a `type` discriminator. The bindings
+Every event is a JSON object with a `type` discriminator plus the
+fields shown below. Events carry no timestamp or session id. The bindings
 deserialize into a sealed-class / enum hierarchy; in JS the union is
 typed in `@sentlog/react-native` / `@sentlog/capacitor`.
 
@@ -58,8 +59,9 @@ One per dispatch attempt per forwarder. Outcomes:
 
 - `ok` — envelope crossed the FFI boundary into the integrator's
   dispatcher (HTTP / webhook / callback) OR was written to the
-  local-queue file. `attempts = 1` (the SDK does not own wire-level
-  retry; the binding's HTTP client does).
+  local-queue file. `attempts = 1` (the SDK has no forwarder HTTP sender and
+  no retry; your dispatcher does the delivery and any retrying). So `ok`
+  doesn't mean the destination received it.
 - `dropped` — envelope was not delivered. Possible reasons (not yet
   surfaced as a field, but inferable from configuration):
   - sampling: `sample_rate < 1.0` and this run rolled below
@@ -67,6 +69,10 @@ One per dispatch attempt per forwarder. Outcomes:
   - `local_queue_open_failed`
   - `envelope_build_failed`
   - `hardware_signing_required_failed`
+  - `tsa_required_failed`
+  - `unknown_projection`
+
+The `retry` outcome is defined in the union but not emitted yet.
 
 ### `CaptureAborted`
 
@@ -109,12 +115,24 @@ callback returns failure (`signer_call_failed`) or none is registered
 envelope ships unsigned. When `hardware_signing_required` is true the
 envelope is dropped instead — see the corresponding `ForwarderOutcome`.
 
-### `ModelLoadError`, `PermissionDenied`, `TsaRequestFailed`
+### `TsaRequestFailed`
 
-These are emitted by platform-side code paths (model loading,
-permission requests, TSA timestamping). `ModelLoadError` and
-`PermissionDenied` are wired today; `TsaRequestFailed` is reserved
-for the deferred TSA work (Phase 4h).
+```json
+{ "type": "TsaRequestFailed",
+  "tsa_url": "https://tsa.example.com",
+  "reason": "tsa_provider_returned_error" }
+```
+
+Emitted when `tsa_endpoint` is set and no timestamp could be attached.
+`reason` is one of: `no_tsa_provider_registered`,
+`tsa_provider_returned_error`, `no_proof_to_stamp`,
+`envelope_parse_failed`. The envelope ships without `tsa_timestamp`,
+unless `tsa_required` is true, in which case it is dropped.
+
+### `ModelLoadError`, `PermissionDenied`
+
+Not implemented yet: both are defined in the union, but nothing emits
+them today.
 
 ## Sample handler
 
@@ -143,7 +161,7 @@ Sentlog.initialize(cfg, applicationContext) { ev ->
         is TelemetryEvent.HardwareSigningUnavailable ->
             log.w("sentlog", "hardware signing fallback: ${ev.reason}")
         is TelemetryEvent.ForwarderOutcome
-            if ev.outcome == ForwarderOutcomeKind.DROPPED ->
+            if ev.outcome == TelemetryEvent.ForwarderOutcome.Outcome.Dropped ->
             log.w("sentlog", "forwarder ${ev.forwarderName} dropped envelope")
         else -> {}
     }

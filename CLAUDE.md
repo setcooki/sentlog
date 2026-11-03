@@ -88,16 +88,15 @@ sentlog/
   fingerprint computation, scoring math, and ML kernel orchestration
   live here.
 - **`android/` and `ios/`** are the thick bindings. Capture
-  orchestration, OTA fetch + verification, sensor handling, forwarder
-  pipeline, retry logic, telemetry — all platform-native code. The
-  goal is to keep the C++ surface small because all code is AI-written
+  orchestration, OTA fetch, sensor handling, telemetry — all
+  platform-native code. The goal is to keep the C++ surface small because all code is AI-written
   (see below).
 - **`rn/` and `capacitor/`** wrap the platform bindings. Pure
   TypeScript surface; the bridges are thin native-to-JS shims that
   serialise types and forward calls.
 - **`models/`** is a training/conversion workshop. Nothing in
   `models/` ships in the SDK binary — outputs go through the signed
-  manifest (`models/manifest/`).
+  manifest (`models/manifest/`, which holds no manifests yet).
 - **`tools/`** is integrator-facing tooling and samples. Independent
   of the SDK; treat as a separate concern.
 
@@ -107,11 +106,11 @@ sentlog/
 |---|---|
 | Shared core | C++17, CMake, gtest |
 | Android binding | Kotlin, JNI, Gradle, Macrobenchmark, ONNX Runtime |
-| iOS binding | Swift, C interop, SPM, XCTest, Core ML, Vision |
+| iOS binding | Swift, C interop, SPM, XCTest, ONNX Runtime |
 | React Native bridge | TypeScript, Kotlin (NativeModule), Swift (`@objc`) |
 | Capacitor bridge | TypeScript, Kotlin (`@CapacitorPlugin`), Swift (`CAP_PLUGIN`) |
 | Evidence verifier | Python (single-file, stdlib + `cryptography`) |
-| Models | whisper.cpp (Q5_1, ACFT), AASIST-L, MediaPipe Face Mesh, Silero VAD |
+| Models | whisper.cpp, AASIST-L, Silero VAD |
 | Audio fingerprint | homegrown MIT `sentlog-pcp-v1` (Goertzel temporal-delta hash) — Chromaprint dropped over LGPL static-link burden |
 | Prosody features | homegrown MIT `sentlog-prosody-v1` (F0 / energy / voicing-stat heuristic) — openSMILE dropped over GPL/commercial dual-licence incompatibility |
 | Signing | Ed25519 (software), ECDSA-P256 (hardware-backed via Secure Enclave / KeyStore StrongBox) |
@@ -164,7 +163,8 @@ Don't violate them without flagging.
    transcript text, no video frames, no user identifier.
 7. **Forwarders ship envelopes; integrators name destinations.** Sinks
    (HTTP, Webhook, LocalQueue, Callback) are primitives. The SDK has
-   no opinion on backends.
+   no opinion on backends. It writes LocalQueue itself; HTTP and webhook
+   delivery, including retry, is the integrator's dispatcher.
 
 ## AI-coded engineering posture
 

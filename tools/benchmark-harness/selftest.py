@@ -108,6 +108,16 @@ def main() -> int:
         check(per["replay"]["liveness_hist"][0] == 4,
               "all 4 replay clips bucket into the [0.0, 0.1] liveness band")
 
+        # A runner that fails on every clip measured nothing, so it must
+        # not exit 0 with a perfect-looking 0% FAR and FRR.
+        broken = subprocess.run(
+            [sys.executable, str(HERE / "harness.py"), str(root),
+             "--runner", "false", "--max-errors", "1000"],
+            capture_output=True, text=True, timeout=30)
+        check(broken.returncode == 2,
+              f"harness exits 2 when nothing scored (got {broken.returncode})")
+        check("n/a" in broken.stdout, "report shows n/a when nothing scored")
+
     if failures:
         print(f"\n{len(failures)} failure(s)", file=sys.stderr)
         return 1

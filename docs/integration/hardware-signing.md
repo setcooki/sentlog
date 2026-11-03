@@ -20,8 +20,11 @@ for most integrations. Reach for hardware signing when:
 The shared C++ core does proof-block assembly + canonicalisation +
 fallback handling. **It does not own the key material** — your app
 generates the key in the secure element and registers a *signer
-callback* that receives the JCS-canonical envelope bytes and returns
-the raw signature.
+callback* that receives the 64 bytes to sign,
+`SHA-256(JCS(proof config)) || SHA-256(JCS(document))`, and returns the
+signature: 64 raw bytes for `eddsa-jcs-2022`, ASN.1 DER for
+`ecdsa-jcs-2019`. The core encodes it into `proofValue` as multibase
+base58btc.
 
 This split is deliberate: every device's keystore API surface is
 different, and the SDK shouldn't pretend to abstract them. Your
@@ -29,9 +32,8 @@ binding code keeps full control of key lifecycle, biometric
 prompts, and any platform-specific quirks (`kSecAttrAccessible…`,
 `setUserAuthenticationRequired`, etc.).
 
-A SDK-bundled `SecureEnclaveSigner` / `KeyStoreSigner` helper that
-takes care of the boilerplate is planned for Phase 7.5 and will land
-without changing the API below.
+The SDK-bundled `SecureEnclaveSigner` and `KeyStoreSigner` helpers
+take care of the boilerplate; see below.
 
 ## iOS (Swift)
 

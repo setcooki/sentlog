@@ -18,6 +18,7 @@ compile_commands.json
 # Android
 *.iml
 .gradle/
+.kotlin/
 local.properties
 .cxx/
 tools/bridge-compile/libs/

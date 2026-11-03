@@ -54,8 +54,9 @@ val result: SentlogResult = Sentlog.evaluate()
 What leaves the device: nothing, unless the integrator configures a
 forwarder. Forwarders are pluggable sinks (HTTP, webhook, local queue,
 callback) with per-sink projections (full result, scores only,
-transcript only, fingerprint, clip, custom). The SDK has no opinion
-on destinations.
+transcript only, fingerprint, clip, custom). The SDK doesn't send
+forwarder traffic itself: the integrator's dispatcher delivers HTTP and
+webhook envelopes. The SDK has no opinion on destinations.
 
 ## Status
 
@@ -102,8 +103,8 @@ sentlog/
 │   ├── benchmark-harness/
 │   ├── reference-consumer/   # HTTP server for HttpSink testing
 │   ├── evidence-verifier/    # single-file Python verifier
-│   ├── sample-capacitor/     # Svelte/Ionic + Capacitor sample app
-│   └── sample-react-native/  # React Native sample app
+│   ├── sample-capacitor/     # Capacitor sample snippets (not a runnable app)
+│   └── sample-react-native/  # React Native sample snippets (not a runnable app)
 └── docs/
     ├── whitepaper.md
     ├── technical-specification.md
@@ -122,7 +123,7 @@ sentlog/
 | State | No user model, no sessions, no accounts. Opaque `session_id` passthrough. |
 | Personal data | Voice and video never leave the device unless explicitly configured. Fingerprint forwarding ships ~120 bytes of non-invertible perceptual hash. |
 | Licence | MIT |
-| Foundational dependencies | whisper.cpp (MIT), Silero VAD (MIT), AASIST-L (MIT), MediaPipe Face Mesh (Apache 2.0). Audio fingerprint and prosody features are homegrown MIT — see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). |
+| Foundational dependencies | whisper.cpp (MIT), Silero VAD (MIT), AASIST-L (MIT), ONNX Runtime (MIT). Audio fingerprint and prosody features are homegrown MIT — see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). |
 
 ## Roadmap
 

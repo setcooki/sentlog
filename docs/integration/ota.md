@@ -12,6 +12,12 @@ This page covers the integrator-facing flow.
 
 ## Default behaviour
 
+Not implemented yet: a Sentlog-published manifest. `models/manifest/`
+holds only `.gitkeep`, and the default URL and pinned keys are
+placeholders, so use a [self-published manifest](#self-published-manifest-custom-url--keys)
+for now. Only Silero VAD is committed to the repo as a baseline model;
+see `tools/whisper-model/` and `tools/aasist-conversion/` for the others.
+
 `Sentlog.checkForUpdates()` fetches the published Sentlog manifest
 URL over HTTPS and verifies the Ed25519 signature against two
 rotatable pinned public keys (active + standby) baked into the
@@ -110,6 +116,10 @@ crossing the native bridge twice for the same bytes.
   "update_found":     true,
   "previous_version": "0.0.5",
   "new_version":      "0.0.6",
+  "bundle_url":       "https://updates.example.com/models-0.0.6.tar",
+  "bundle_sha256":    "<lowercase hex, 64 chars>",
+  "bundle_size":      123456,
+  "issued_at_ms":     1735689600000,
   "applied":          false,
   "error":            null
 }

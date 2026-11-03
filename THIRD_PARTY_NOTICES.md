@@ -6,16 +6,17 @@ software and data Sentlog redistributes or builds on, with the
 required attributions and licence texts.
 
 When a third-party artefact is *bundled* in the SDK (e.g. a model
-weight file shipped in the AAR / XCFramework), this file carries its
+weight file shipped in the AAR / Swift package), this file carries its
 licence. When a third-party artefact is only a *build-time
 dependency*, this file carries attribution.
 
 ---
 
-## AASIST-L pretrained weights (bundled)
+## AASIST-L pretrained weights (source for the converted model)
 
-The Sentlog liveness module bundles the official AASIST-L pretrained
-checkpoint from NAVER Corp's open-source release.
+The Sentlog liveness model is converted from the official AASIST-L
+pretrained checkpoint from NAVER Corp's open-source release. The
+weights aren't committed to this repo; see the next section.
 
 - **Source:** [`clovaai/aasist`](https://github.com/clovaai/aasist),
   file `models/weights/AASIST-L.pth` (~426 KB, 85K parameters).
@@ -23,8 +24,8 @@ checkpoint from NAVER Corp's open-source release.
   *AASIST: Audio Anti-Spoofing Using Integrated Spectro-Temporal
   Graph Attention Networks.* ICASSP 2022.
   [arXiv:2110.01200](https://arxiv.org/abs/2110.01200).
-- **Pinned commit SHA:** *(recorded in `models/liveness/SOURCE.md`
-  when the weights are integrated in Phase 1.)*
+- **Pinned commit:** see `AASIST_COMMIT` in
+  [`tools/aasist-conversion/convert-aasist-l.py`](tools/aasist-conversion/convert-aasist-l.py).
 - **Licence:** MIT.
 
 ```
@@ -75,7 +76,7 @@ upstream MIT-licensed `AASIST-L.pth` weights.
   [ADR 0004](docs/adr/0004-aasist-l-liveness-from-week-2.md) for the
   whole-repo licence assessment).
 
-Same MIT notice as the Silero VAD entry above; see
+Same MIT notice as the NAVER Corp entry above; see
 [`models/liveness/SOURCE.md`](models/liveness/SOURCE.md) for the full
 provenance of the converted artefact.
 
@@ -83,7 +84,7 @@ provenance of the converted artefact.
 
 ## ASVspoof 2019 LA — Training data
 
-The AASIST-L weights bundled above were trained on the ASVspoof 2019
+The AASIST-L weights above were trained on the ASVspoof 2019
 LA (Logical Access) dataset.
 
 - **Source:** [Edinburgh DataShare DOI 10.7488/ds/2555](https://datashare.ed.ac.uk/handle/10283/3336)
@@ -139,8 +140,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-The iOS SwiftPM package bundles the same model file when Silero is
-wired up in a follow-up chunk.
+The iOS SwiftPM package bundles the same model file at
+`ios/Sources/Sentlog/Resources/silero_vad.onnx`.
 
 ---
 
@@ -156,15 +157,16 @@ required by the respective licence; this file carries attribution.
 | [ggml](https://github.com/ggerganov/ggml) | ML kernels backing whisper.cpp | MIT |
 | [Silero VAD](https://github.com/snakers4/silero-vad) | Voice activity detection | MIT |
 | [tweetnacl](https://tweetnacl.cr.yp.to/) | Ed25519 signing for the VC 2.0 envelope's DataIntegrityProof (Phase 4b). Vendored at `shared/external/tweetnacl/`; see `shared/external/tweetnacl/VERSION.md`. | Public domain |
-| [MediaPipe Face Mesh](https://github.com/google/mediapipe) | Face landmark detection (Android, affect mode) | Apache-2.0 |
-| Apple Vision framework | Face landmark detection (iOS, affect mode) | Apple system framework |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON parsing and serialisation in the C++ core | MIT |
 | [GoogleTest](https://github.com/google/googletest) | Test framework (build-time only; not in shipping artefacts) | BSD-3-Clause |
-| [ONNX Runtime Mobile](https://github.com/microsoft/onnxruntime) | On-device ONNX inference (Silero VAD; AASIST-L in a follow-up chunk) | MIT |
+| [ONNX Runtime](https://github.com/microsoft/onnxruntime) | On-device ONNX inference (Silero VAD; AASIST-L when the converted model is present) | MIT |
 
-When the SDK build system integrates each of these in the phases
-that own them, the bundled binaries carry the respective licence
-texts and attribution notices as required.
+Bundled binaries carry the respective licence texts and attribution
+notices as required.
+
+MediaPipe Face Mesh and the Apple Vision framework are not SDK
+dependencies. Integrators who use face affect may add them to their
+own apps, under those projects' terms.
 
 ## Components considered and replaced
 

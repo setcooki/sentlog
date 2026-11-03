@@ -69,9 +69,14 @@ manager.requestIntegrityToken(request)
 Play Integrity tokens are JWS strings; we record them as bytes
 (UTF-8). The verifier can re-parse them as JWS out of band.
 
-A bundled `PlayIntegrityAttester` helper that wraps the boilerplate
-above lands in Phase 5e-ii (introduces Google Play Services as an
-optional dep).
+The bundled `PlayIntegrityAttester` helper wraps the boilerplate above.
+Play Integrity is `compileOnly` in the SDK, so add
+`com.google.android.play:integrity` to your app to use it:
+
+```kotlin
+val attester = PlayIntegrityAttester.create(applicationContext)
+Sentlog.attestAndRegister(attester, myNonce)
+```
 
 ## iOS
 
@@ -100,8 +105,12 @@ Attestation tokens are CBOR-encoded; we record them as bytes
 unchanged. The verifier validates against Apple's AppAttest root
 out of band.
 
-A bundled `AppAttestAttester` helper that wraps the boilerplate
-above lands in Phase 5e-ii.
+The bundled `AppAttestAttester` helper wraps the boilerplate above:
+
+```swift
+let attester = try await AppAttestAttester.create()
+try await Sentlog.attestAndRegister(attester, challenge: myChallengeBytes)
+```
 
 ## Token lifetime
 
@@ -116,7 +125,7 @@ fresh token before the next evaluate.
 ```jsonc
 {
   "credentialSubject": {
-    "envelope_format":   "sentlog-v1",
+    "envelope_format":   "sentlog-evidence/1",
     "evidence_grade":    "DeviceAttested",
     "device_attestation": {
       "type":      "play_integrity",

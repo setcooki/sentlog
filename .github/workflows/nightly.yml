@@ -1,0 +1,61 @@
+name: Nightly
+
+# MSan needs every linked library instrumented, including the C++ standard
+# library, so this builds an instrumented libc++ first. Too slow for each PR.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/nightly.yml
+
+jobs:
+  shared-msan:
+    name: shared (MSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Build instrumented libc++
+        run: |
+          version=$(clang -dumpversion | cut -d. -f1-3)
+          git clone --depth 1 --branch "llvmorg-$version" \
+            https://github.com/llvm/llvm-project.git "$RUNNER_TEMP/llvm"
+          cmake -S "$RUNNER_TEMP/llvm/runtimes" -B "$RUNNER_TEMP/libcxx" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi" \
+            -DLIBCXXABI_USE_LLVM_UNWINDER=OFF \
+            -DLIBCXX_INCLUDE_TESTS=OFF -DLIBCXXABI_INCLUDE_TESTS=OFF \
+            -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_USE_SANITIZER=MemoryWithOrigins
+          ninja -C "$RUNNER_TEMP/libcxx" cxx cxxabi
+
+      - name: Configure
+        run: |
+          # In the flags too: CMake's compiler check links against the
+          # instrumented libc++ before the project adds its own options.
+          msan="-fsanitize=memory -fsanitize-memory-track-origins"
+          flags="$msan -stdlib=libc++ -nostdinc++ -isystem $RUNNER_TEMP/libcxx/include/c++/v1"
+          link="-fsanitize=memory -stdlib=libc++ -L$RUNNER_TEMP/libcxx/lib -Wl,-rpath,$RUNNER_TEMP/libcxx/lib"
+          cmake -S shared -B shared/build -G Ninja \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="$msan" \
+            -DCMAKE_CXX_FLAGS="$flags" \
+            -DCMAKE_EXE_LINKER_FLAGS="$link" \
+            -DSENTLOG_ENABLE_MSAN=ON
+
+      - name: Build
+        run: cmake --build shared/build
+
+      - name: Test
+        working-directory: shared/build
+        run: ctest --output-on-failure
