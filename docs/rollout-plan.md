@@ -125,8 +125,8 @@ integration test.
   `CallbackSink`.
 - Seven projections: `Full`, `Full+AudioClip`, `ScoresOnly`,
   `TranscriptOnly`, `EvidenceFingerprint`, `EvidenceClip`, `Custom`.
-- Sampling per forwarder. Not implemented yet: retry/backoff per
-  forwarder; delivery and retry belong to the integrator's dispatcher.
+- Sampling per forwarder. No retry/backoff in the SDK, by decision:
+  delivery and retry belong to the integrator's dispatcher.
 - Opus encoding (32 kbps mono) for clip projections, on-demand only.
 - **VC 2.0 envelope construction** per the spec. Envelope built with
   `@context`, `type`, `issuer`, `credentialSubject`, `proof` populated

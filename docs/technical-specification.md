@@ -31,7 +31,7 @@ Companion documents:
 | 1.6 | **`Sentlog` brand. Cocoa-style prefixes: `SentlogResult`, `SentlogConfig`** | Idiomatic in Swift, fine in Kotlin. |
 | 1.7 | **AASIST-L for liveness from week 2, not rule-based** | AASIST-L is the small variant of the AASIST graph-attention anti-spoofing architecture — ~85K parameters, real-time on CPU, ~1% EER on ASVspoof 2019-LA closed-set. Paper attribution and weight licence in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). |
 | 1.8 | **Whisper-encoder linear probe (~50 KB) + `sentlog-prosody-v1` MLP head (~200 KB), ensembled** | Marginal compute is near-zero because whisper is already running for ASR; the encoder's hidden state is reused as a feature stream for the prosody probe. The MIT prosody extractor (`shared/src/internal/prosody.{h,cpp}`) replaces the rollout-plan's original openSMILE choice — openSMILE is GPL / commercial-dual which is incompatible with our MIT distribution; the eGeMAPS feature *set* is a published spec, the openSMILE *implementation* is what's GPL. Not implemented yet: the probe and the MLP head. `voice_score` is a heuristic over the `sentlog-prosody-v1` features. |
-| 1.9 | **Composable forwarding for all output destinations** | Fully decouples from any specific service. Integrator names every endpoint. |
+| 1.9 | **Composable forwarding for all output destinations** | Fully decouples from any specific service. Integrator names every endpoint. The SDK writes `local_queue` itself; HTTP and webhook delivery, including retry, is the integrator's dispatcher (see §4.1). |
 | 1.10 | **Audio input source + motion coherence are first-class signals; device integrity optional** | Catches the highest-volume fraud class (device farms). |
 | 1.11 | **Video used for affect / sentiment enrichment only; lip-sync as anti-spoof is reserved for future activation** | Augments engagement scoring. Lip-sync is cheap to add later because affect mode already captures face-mesh data. |
 | 1.12 | **Audit transmission is one projection of composable forwarding, not a separate channel** | One configuration surface; same primitive supports analytics, fraud, audit, moderation. |
@@ -344,8 +344,8 @@ TelemetryEvent =
     | TsaRequestFailed          { tsa_url: String, reason: String }
 
 // The list above is exhaustive — no other event types are emitted.
-// ModelLoadError, PermissionDenied and outcome "retry" are defined but
-// not emitted yet.
+// ModelLoadError and PermissionDenied are defined but not emitted yet.
+// Outcome "retry" is defined but never emitted (see §4.1).
 // Every event carries `type` plus the fields above; there is no
 // timestamp or session_id. No audio, no transcript text, no video
 // frames, no user identifier.
@@ -442,8 +442,10 @@ Forwarders run synchronously inside `evaluate()`, on the thread running
 it, before the result is returned. A slow dispatcher or TSA provider
 delays `evaluate()`, so hand long-running work off.
 
-Not implemented yet: retry. `retry` below is accepted in the config but
-ignored, and `ForwarderOutcome.attempts` is only ever 0 or 1.
+By decision, the SDK doesn't retry, which keeps it inert (no timers or
+background sends). `retry` below is accepted in the config but ignored,
+and `ForwarderOutcome.attempts` is only ever 0 or 1. Your dispatcher can
+read the policy from the forwarder config if it wants to apply it.
 
 ```
 Forwarder {

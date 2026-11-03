@@ -3,6 +3,11 @@
 **Status:** Accepted
 **Date:** 2026-05-22
 **Spec reference:** [§1.9](../technical-specification.md#1-architectural-decisions)
+**Amended:** 2026-11-03: the SDK has no HTTP or webhook sender and no
+retry. It writes `local_queue` itself; everything else goes to the
+integrator's dispatcher. A sender with retry would need timers and
+background work, which conflicts with "inert by default". The text below
+marked as amended is kept for history.
 
 ## Context
 
@@ -35,7 +40,8 @@ where:
   `EvidenceFingerprint`, `EvidenceClip`, or `Custom`.
 - **`sample_rate`** lets the integrator implement the whitepaper's
   "15% audit" pattern as a config option, not a code path.
-- **`retry`** is per-forwarder backoff configuration.
+- **`retry`** is per-forwarder backoff configuration. (Amended: accepted but
+  ignored by the SDK.)
 
 After every `evaluate()`, the SDK fans the result through all
 configured forwarders on the I/O thread. Forwarders do not block
@@ -61,7 +67,8 @@ integrator explicitly wires up at least one forwarder.
 **Constrained:**
 
 - The SDK is responsible for retry, backoff, and offline queueing.
-  Bug surface is real — needs dedicated tests in Phase 4.
+  Bug surface is real — needs dedicated tests in Phase 4. (Amended: these
+  are the integrator's dispatcher's job, apart from `local_queue` writes.)
 - The `CallbackSink` escape hatch covers "anything else" but is
   awkward for streaming destinations. WebSocket/gRPC sinks remain
   post-v1.0.
