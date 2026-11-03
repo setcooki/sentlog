@@ -70,13 +70,25 @@ public class KeyStoreSigner private constructor(
          * `HardwareSigningUnavailable` telemetry event.
          */
         @JvmStatic
+        @Synchronized
         public fun create(keyAlias: String): KeyStoreSigner {
             val keyStore = KeyStore.getInstance("AndroidKeyStore").apply {
                 load(null)
             }
 
-            val privateKey = loadKey(keyStore, keyAlias)
-                ?: createKey(keyAlias, keyStore)
+            // containsAlias, not a failed load: a transient KeyStore error
+            // must surface rather than replace the key and change identity.
+            val privateKey =
+                if (keyStore.containsAlias(keyAlias)) {
+                    keyStore.getKey(keyAlias, null) as java.security.PrivateKey
+                } else {
+                    createKey(keyAlias, keyStore)
+                }
+            // EnclaveSigned promises hardware backing. AndroidKeyStore can
+            // silently fall back to software on devices without it.
+            check(isInsideSecureHardware(privateKey)) {
+                "KeyStoreSigner: key $keyAlias is not hardware-backed"
+            }
 
             val cert = keyStore.getCertificate(keyAlias)
                 ?: error("KeyStoreSigner: cert missing for $keyAlias")
@@ -113,10 +125,18 @@ public class KeyStoreSigner private constructor(
 
         // ----- internals --------------------------------------------
 
-        private fun loadKey(keyStore: KeyStore, alias: String): java.security.PrivateKey? {
-            return runCatching {
-                keyStore.getKey(alias, null) as? java.security.PrivateKey
-            }.getOrNull()
+        private fun keyInfo(key: java.security.PrivateKey): android.security.keystore.KeyInfo =
+            java.security.KeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
+                .getKeySpec(key, android.security.keystore.KeyInfo::class.java)
+
+        @Suppress("DEPRECATION")  // the only signal below API 31
+        private fun isInsideSecureHardware(key: java.security.PrivateKey): Boolean {
+            val info = keyInfo(key)
+            if (android.os.Build.VERSION.SDK_INT < 31) return info.isInsideSecureHardware
+            return info.securityLevel ==
+                android.security.keystore.KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT ||
+                info.securityLevel ==
+                android.security.keystore.KeyProperties.SECURITY_LEVEL_STRONGBOX
         }
 
         private fun createKey(alias: String, keyStore: KeyStore): java.security.PrivateKey {
@@ -171,14 +191,9 @@ public class KeyStoreSigner private constructor(
         private fun isKeyStrongBox(key: java.security.PrivateKey): Boolean {
             if (android.os.Build.VERSION.SDK_INT < 28) return false
             return try {
-                val factory = java.security.KeyFactory.getInstance(
-                    key.algorithm, "AndroidKeyStore")
-                val info = factory.getKeySpec(key,
-                    android.security.keystore.KeyInfo::class.java)
-                // isInsideSecureHardware always true for AndroidKeyStore;
+                val info = keyInfo(key)
                 // StrongBox specifically: SDK 31+ surfaces it via
-                // getSecurityLevel; below that, fall back to a best-effort
-                // probe via the deprecated isInsideSecureHardware flag.
+                // getSecurityLevel.
                 if (android.os.Build.VERSION.SDK_INT >= 31) {
                     info.securityLevel ==
                         android.security.keystore.KeyProperties.SECURITY_LEVEL_STRONGBOX

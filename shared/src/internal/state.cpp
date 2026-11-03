@@ -363,12 +363,11 @@ std::string State::capabilities_json() const {
     j["motion_sensors"]         = config_.use_motion_sensors;
     j["video_face_mesh"]        = false;  // platform-side; not wired yet
     j["device_integrity_check"] = false;  // platform-side; not wired yet
-    // ota_updates / local_queue stay false until their real impls
-    // land (Phase 7 / Phase 4). The C ABI accepts the calls today
-    // but the implementations are no-op stubs — reporting true here
-    // would mislead integrators reading capabilities() at startup.
-    j["ota_updates"]            = false;
-    j["local_queue"]            = false;
+    // Verification only works against configured keys until Sentlog
+    // publishes its own (see the placeholder keys below). "native" is
+    // the core's view; the JS bridges report their own runtime.
+    j["ota_updates"]            = config_.manifest_pubkeys.has_value();
+    j["local_queue"]            = true;
     j["runtime"]                = "native";
     return j.dump();
 }

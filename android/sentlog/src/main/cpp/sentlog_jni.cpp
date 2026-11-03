@@ -22,6 +22,7 @@
 
 #include <cstring>
 #include <memory>
+#include <string>
 #include <vector>
 
 #define SENTLOG_LOG_TAG "sentlog-jni"
@@ -80,6 +81,40 @@ void with_jni_env(F&& fn) {
     }
 }
 
+// NewStringUTF and GetStringUTFChars use modified UTF-8, which can't
+// carry code points above U+FFFF such as emoji in a transcript. These
+// two go through java.lang.String's real UTF-8 conversion instead.
+jstring new_string_utf8(JNIEnv* env, const char* utf8) {
+    const auto len = static_cast<jsize>(std::strlen(utf8));
+    jbyteArray bytes = env->NewByteArray(len);
+    if (bytes == nullptr) return nullptr;
+    env->SetByteArrayRegion(bytes, 0, len, reinterpret_cast<const jbyte*>(utf8));
+    jclass cls = env->FindClass("java/lang/String");
+    jmethodID ctor = env->GetMethodID(cls, "<init>", "([BLjava/lang/String;)V");
+    jstring charset = env->NewStringUTF("UTF-8");
+    auto* out = static_cast<jstring>(env->NewObject(cls, ctor, bytes, charset));
+    env->DeleteLocalRef(charset);
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(bytes);
+    return out;
+}
+
+std::string string_utf8(JNIEnv* env, jstring value) {
+    jclass cls = env->GetObjectClass(value);
+    jmethodID get_bytes =
+        env->GetMethodID(cls, "getBytes", "(Ljava/lang/String;)[B");
+    jstring charset = env->NewStringUTF("UTF-8");
+    auto* bytes = static_cast<jbyteArray>(
+        env->CallObjectMethod(value, get_bytes, charset));
+    std::string out(static_cast<size_t>(env->GetArrayLength(bytes)), '\0');
+    env->GetByteArrayRegion(bytes, 0, static_cast<jsize>(out.size()),
+                            reinterpret_cast<jbyte*>(&out[0]));
+    env->DeleteLocalRef(bytes);
+    env->DeleteLocalRef(charset);
+    env->DeleteLocalRef(cls);
+    return out;
+}
+
 inline JniHandle* jni_from_jlong(jlong h) {
     return reinterpret_cast<JniHandle*>(static_cast<uintptr_t>(h));
 }
@@ -100,7 +135,7 @@ void on_result(sentlog_status_t status,
     with_jni_env([&](JNIEnv* env) {
         jstring js = nullptr;
         if (result_json != nullptr) {
-            js = env->NewStringUTF(result_json);
+            js = new_string_utf8(env, result_json);
         }
         env->CallVoidMethod(cb->ref, cb->method,
                             static_cast<jint>(status), js);
@@ -117,7 +152,7 @@ void on_update(sentlog_status_t status,
     with_jni_env([&](JNIEnv* env) {
         jstring js = nullptr;
         if (update_json != nullptr) {
-            js = env->NewStringUTF(update_json);
+            js = new_string_utf8(env, update_json);
         }
         env->CallVoidMethod(cb->ref, cb->method,
                             static_cast<jint>(status), js);
@@ -132,10 +167,13 @@ void on_telemetry(const char* event_json, void* userdata) {
     with_jni_env([&](JNIEnv* env) {
         jstring js = nullptr;
         if (event_json != nullptr) {
-            js = env->NewStringUTF(event_json);
+            js = new_string_utf8(env, event_json);
         }
         env->CallVoidMethod(cb->ref, cb->method, js);
         if (js != nullptr) env->DeleteLocalRef(js);
+        // A throwing integrator callback must not leave a pending
+        // exception for the C++ core to run under.
+        if (env->ExceptionCheck()) env->ExceptionClear();
         // telemetry callback is long-lived; do NOT delete the global ref.
     });
 }
@@ -144,7 +182,7 @@ int on_drain_envelope(const char* envelope_json, size_t /*len*/, void* userdata)
     auto* cb = static_cast<GlobalCallback*>(userdata);
     int keep_or_delete = 0;
     with_jni_env([&](JNIEnv* env) {
-        jstring js = env->NewStringUTF(envelope_json ? envelope_json : "");
+        jstring js = new_string_utf8(env, envelope_json ? envelope_json : "");
         const jboolean ret =
             env->CallBooleanMethod(cb->ref, cb->method, js);
         if (env->ExceptionCheck()) {
@@ -324,7 +362,7 @@ void on_envelope_dispatch(const char* forwarder_name,
         jstring n = env->NewStringUTF(forwarder_name ? forwarder_name : "");
         jstring k = env->NewStringUTF(sink_kind      ? sink_kind      : "");
         jstring s = env->NewStringUTF(sink_json      ? sink_json      : "");
-        jstring e = env->NewStringUTF(envelope_json  ? envelope_json  : "");
+        jstring e = new_string_utf8(env, envelope_json  ? envelope_json  : "");
         env->CallVoidMethod(cb->ref, cb->method, n, k, s, e);
         // The dispatcher fires inside a loop over configured forwarders.
         // If the integrator's Kotlin dispatcher throws, the JVM leaves
@@ -369,8 +407,7 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeCreate(
 
     if (config_json == nullptr) return 0;
 
-    const char* config_cstr = env->GetStringUTFChars(config_json, nullptr);
-    if (config_cstr == nullptr) return 0;
+    const std::string config = string_utf8(env, config_json);
 
     sentlog_telemetry_cb_t telemetry_cb = nullptr;
     GlobalCallback* telemetry_userdata = nullptr;
@@ -389,9 +426,7 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativeCreate(
 
     sentlog_status_t status = SENTLOG_OK;
     sentlog_handle_t* native =
-        sentlog_create(config_cstr, telemetry_cb, telemetry_userdata, &status);
-
-    env->ReleaseStringUTFChars(config_json, config_cstr);
+        sentlog_create(config.c_str(), telemetry_cb, telemetry_userdata, &status);
 
     if (status_out != nullptr) {
         const jint s = static_cast<jint>(status);
@@ -475,12 +510,9 @@ Java_me_cooki_sentlog_internal_NativeBridge_nativePushTranscript(
     JNIEnv* env, jclass /*clazz*/, jlong handle, jstring transcript_json) {
 
     if (transcript_json == nullptr) return SENTLOG_ERR_INVALID_CONFIG;
-    const char* j = env->GetStringUTFChars(transcript_json, nullptr);
-    if (j == nullptr) return SENTLOG_ERR_INTERNAL;
-    const jint rc = static_cast<jint>(
-        sentlog_push_transcript(native_from_jlong(handle), j));
-    env->ReleaseStringUTFChars(transcript_json, j);
-    return rc;
+    const std::string j = string_utf8(env, transcript_json);
+    return static_cast<jint>(
+        sentlog_push_transcript(native_from_jlong(handle), j.c_str()));
 }
 
 JNIEXPORT jint JNICALL

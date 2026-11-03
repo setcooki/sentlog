@@ -33,6 +33,10 @@ import java.nio.ByteBuffer
  */
 public object OpusAudioEncoder {
 
+    /** Opus packets, each prefixed with its length as a big-endian
+     *  uint16. See spec §4. */
+    private const val CODEC_NAME = "opus-framed-v1"
+
     private const val SAMPLE_RATE_HZ   = 16_000
     private const val CHANNEL_COUNT    = 1
     private const val BIT_RATE         = 32_000   // bps; voice-quality default
@@ -58,7 +62,7 @@ public object OpusAudioEncoder {
         }
         Sentlog.setAudioEncoder(
             encoder   = ::encodeOnce,
-            codecName = "opus")
+            codecName = CODEC_NAME)
     }
 
     /** Clear any previously-registered audio encoder. */
@@ -147,10 +151,15 @@ public object OpusAudioEncoder {
                 if (outIdx >= 0) {
                     val outBuf: ByteBuffer = codec.getOutputBuffer(outIdx)
                         ?: continue
-                    if (info.size > 0) {
+                    // Skip codec-specific data: it isn't an audio packet.
+                    val isConfig = (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
+                    if (info.size > 0 && !isConfig) {
                         val chunk = ByteArray(info.size)
                         outBuf.position(info.offset)
                         outBuf.get(chunk, 0, info.size)
+                        // Opus packets don't delimit themselves.
+                        encoded.write(info.size shr 8)
+                        encoded.write(info.size and 0xff)
                         encoded.write(chunk)
                     }
                     codec.releaseOutputBuffer(outIdx, false)

@@ -40,12 +40,27 @@ public struct AppAttestAttester {
     /// `keyIdStoreKey` is the UserDefaults key under which the keyId
     /// is persisted; defaults to a Sentlog-namespaced key. Custom apps
     /// with multiple attestation contexts should pass distinct keys.
-    /// Serialises concurrent first-time `create()` calls so two
-    /// threads racing on app startup don't both call generateKey
-    /// and end up with separate keyIds (only one of which gets
-    /// persisted). Once the keyId is in UserDefaults the
-    /// fast-path load is contention-free.
-    private static let createLock = NSLock()
+    /// Serialises first-time key generation so two tasks racing on app
+    /// startup converge on one keyId. A lock can't be held across `await`;
+    /// the actor shares one in-flight Task instead.
+    private actor KeyGeneration {
+        private var inFlight: [String: Task<String, Error>] = [:]
+
+        func keyId(storeKey: String, generate: @escaping @Sendable () async throws -> String)
+            async throws -> String {
+            if let existing = UserDefaults.standard.string(forKey: storeKey) { return existing }
+            if let task = inFlight[storeKey] { return try await task.value }
+            let task = Task { () throws -> String in
+                let id = try await generate()
+                UserDefaults.standard.set(id, forKey: storeKey)
+                return id
+            }
+            inFlight[storeKey] = task
+            defer { inFlight[storeKey] = nil }
+            return try await task.value
+        }
+    }
+    private static let keyGeneration = KeyGeneration()
 
     public static func create(
         keyIdStoreKey: String = "me.cooki.sentlog.appattest.keyId"
@@ -62,33 +77,25 @@ public struct AppAttestAttester {
         if let existing = UserDefaults.standard.string(forKey: keyIdStoreKey) {
             return AppAttestAttester(keyId: existing, storeKey: keyIdStoreKey)
         }
-        // Slow path: serialise the load-then-generateKey-then-persist
-        // sequence so concurrent first-callers converge on one keyId.
-        // Note we double-check under the lock — another caller may
-        // have populated the store while we were waiting.
-        createLock.lock()
-        defer { createLock.unlock() }
-        if let existing = UserDefaults.standard.string(forKey: keyIdStoreKey) {
-            return AppAttestAttester(keyId: existing, storeKey: keyIdStoreKey)
-        }
-        let keyId: String = try await withCheckedThrowingContinuation { cont in
-            DCAppAttestService.shared.generateKey { id, err in
-                if let err {
-                    cont.resume(throwing: SentlogError(
-                        status: SENTLOG_ERR_HARDWARE_SIGNING,
-                        context: "AppAttestAttester: generateKey failed: \(err.localizedDescription)"))
-                    return
+        let keyId = try await keyGeneration.keyId(storeKey: keyIdStoreKey) {
+            try await withCheckedThrowingContinuation { cont in
+                DCAppAttestService.shared.generateKey { id, err in
+                    if let err {
+                        cont.resume(throwing: SentlogError(
+                            status: SENTLOG_ERR_HARDWARE_SIGNING,
+                            context: "AppAttestAttester: generateKey failed: \(err.localizedDescription)"))
+                        return
+                    }
+                    guard let id else {
+                        cont.resume(throwing: SentlogError(
+                            status: SENTLOG_ERR_HARDWARE_SIGNING,
+                            context: "AppAttestAttester: generateKey returned nil"))
+                        return
+                    }
+                    cont.resume(returning: id)
                 }
-                guard let id else {
-                    cont.resume(throwing: SentlogError(
-                        status: SENTLOG_ERR_HARDWARE_SIGNING,
-                        context: "AppAttestAttester: generateKey returned nil"))
-                    return
-                }
-                cont.resume(returning: id)
             }
         }
-        UserDefaults.standard.set(keyId, forKey: keyIdStoreKey)
         return AppAttestAttester(keyId: keyId, storeKey: keyIdStoreKey)
         #endif
     }
@@ -124,6 +131,30 @@ public struct AppAttestAttester {
                     return
                 }
                 cont.resume(returning: att)
+            }
+        }
+        #endif
+    }
+
+    /// Produce an assertion over `challenge`. App Attest attests a key
+    /// only once: use `attest(challenge:)` the first time, have your server
+    /// verify and store the key, and use this for every later request.
+    public func assertion(challenge: Data) async throws -> Data {
+        #if !canImport(DeviceCheck)
+        throw SentlogError(status: SENTLOG_ERR_HARDWARE_SIGNING,
+                           context: "AppAttestAttester.assertion: DeviceCheck not available")
+        #else
+        let hash = Data(SHA256.hash(data: challenge))
+        return try await withCheckedThrowingContinuation { cont in
+            DCAppAttestService.shared.generateAssertion(keyId,
+                                                        clientDataHash: hash) { assertion, err in
+                if let assertion {
+                    cont.resume(returning: assertion)
+                } else {
+                    cont.resume(throwing: SentlogError(
+                        status: SENTLOG_ERR_HARDWARE_SIGNING,
+                        context: "AppAttestAttester.assertion: \(err?.localizedDescription ?? "no assertion")"))
+                }
             }
         }
         #endif

@@ -284,6 +284,20 @@ TEST(CoreHardeningTest, UnparseableManifestVersionIsNotAnUpdate) {
     }
 }
 
+TEST(CoreHardeningTest, CapabilitiesReportWhatWorks) {
+    const auto read = [](const Handle& handle) {
+        char* text = sentlog_get_capabilities(handle.h);
+        const auto parsed = json::parse(text);
+        sentlog_string_free(text);
+        return parsed;
+    };
+    Handle plain(R"({"issuer":"did:example:i"})");
+    EXPECT_FALSE(read(plain)["ota_updates"].get<bool>());
+    EXPECT_TRUE(read(plain)["local_queue"].get<bool>());
+    Handle ota(kOtaConfig);
+    EXPECT_TRUE(read(ota)["ota_updates"].get<bool>());
+}
+
 // --- Local-queue drain ---
 
 namespace {

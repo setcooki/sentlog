@@ -22,6 +22,9 @@ import java.security.MessageDigest
  *     certReq) — inline impl, no extra dep
  *   - HTTPS POST to the integrator-supplied URL with
  *     Content-Type: application/timestamp-query
+ *   - Requires a granted PKIStatus and a token containing our digest,
+ *     so a rejection served with HTTP 200 doesn't count as a timestamp.
+ *     The token's signature and chain are the verifier's job.
  *   - Returns the response body unchanged (the SDK records it as
  *     `tsa_timestamp.token_b64` on every envelope)
  *
@@ -85,7 +88,7 @@ public object RfcTsaProvider {
                         if (out.size() + n > MAX_TSA_RESP_BYTES) return null
                         out.write(buf, 0, n)
                     }
-                    out.toByteArray()
+                    out.toByteArray().takeIf { isGrantedResponse(it, digest) }
                 }
             } finally {
                 conn.disconnect()
@@ -93,6 +96,45 @@ public object RfcTsaProvider {
         } catch (_: Throwable) {
             null
         }
+    }
+
+    /**
+     * TimeStampResp ::= SEQUENCE {
+     *     status          PKIStatusInfo { status INTEGER, ... },
+     *     timeStampToken  TimeStampToken OPTIONAL
+     * }
+     * PKIStatus 0 is granted, 1 granted with modifications.
+     */
+    internal fun isGrantedResponse(resp: ByteArray, digest: ByteArray): Boolean {
+        // Reads a tag and DER length at `pos`; returns (bodyStart, bodyLength).
+        fun header(pos: Int, tag: Int): Pair<Int, Int>? {
+            if (pos + 2 > resp.size || resp[pos].toInt() and 0xff != tag) return null
+            val first = resp[pos + 1].toInt() and 0xff
+            if (first < 0x80) return Pair(pos + 2, first)
+            val count = first and 0x7f
+            if (count == 0 || count > 3 || pos + 2 + count > resp.size) return null
+            var length = 0
+            for (i in 0 until count) {
+                length = (length shl 8) or (resp[pos + 2 + i].toInt() and 0xff)
+            }
+            return Pair(pos + 2 + count, length)
+        }
+        val (outerStart, outerLen) = header(0, 0x30) ?: return false
+        if (outerStart + outerLen != resp.size) return false
+        val (infoStart, infoLen) = header(outerStart, 0x30) ?: return false
+        val (statusStart, statusLen) = header(infoStart, 0x02) ?: return false
+        if (statusLen != 1 || statusStart >= resp.size) return false
+        val status = resp[statusStart].toInt()
+        if (status != 0 && status != 1) return false
+        val tokenStart = infoStart + infoLen
+        return tokenStart < resp.size && containsSubsequence(resp, tokenStart, digest)
+    }
+
+    private fun containsSubsequence(haystack: ByteArray, from: Int, needle: ByteArray): Boolean {
+        for (i in from..haystack.size - needle.size) {
+            if (needle.indices.all { haystack[i + it] == needle[it] }) return true
+        }
+        return false
     }
 
     /**

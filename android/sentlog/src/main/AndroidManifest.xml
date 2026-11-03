@@ -12,7 +12,9 @@
             Android 12 / API 31+, HIGH_SAMPLING_RATE_SENSORS is only
             needed above 200 Hz; we use SENSOR_DELAY_GAME (~50 Hz)
             and stay below the threshold, so no permission entry.
-  Phase 5:  CAMERA (only when SentlogConfig.useVideoAffect == true).
+  Phase 5:  CAMERA is NOT declared here: inert by default means an app
+            that doesn't use video affect shouldn't inherit it. Apps that
+            set SentlogConfig.useVideoAffect declare it themselves.
             Camera frames never leave the device under any projection
             (spec §5.3); only derived (valence, arousal, FAU) values
             reach forwarders. See docs/permissions.md.
@@ -24,13 +26,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.CAMERA" />
 
     <uses-feature
         android:name="android.hardware.microphone"
         android:required="false" />
-    <uses-feature
-        android:name="android.hardware.camera.any"
-        android:required="false" />
-
 </manifest>

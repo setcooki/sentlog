@@ -32,8 +32,9 @@ Per [`docs/permissions.md`](../../docs/permissions.md):
   `NSMotionUsageDescription` (recommended if `useMotionSensors=
   true`).
 - **Android `AndroidManifest.xml`:** the plugin's library manifest
-  declares `RECORD_AUDIO` and `CAMERA`. The integrator's app is
-  still responsible for the runtime permission UX.
+  declares `RECORD_AUDIO`. Apps using video affect declare `CAMERA`
+  themselves. The integrator's app is still responsible for the runtime
+  permission UX.
 
 ## Use
 

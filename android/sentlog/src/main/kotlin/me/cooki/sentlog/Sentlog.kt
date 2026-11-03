@@ -1,6 +1,9 @@
 package me.cooki.sentlog
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Process
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -147,6 +150,11 @@ public object Sentlog {
     @Synchronized
     public fun startCapture() {
         val h = requireHandle()
+        appContext?.let { ctx ->
+            if (permissionState(ctx, Manifest.permission.RECORD_AUDIO) != PermissionState.Granted) {
+                throw SecurityException("RECORD_AUDIO permission not granted")
+            }
+        }
         val s = NativeBridge.nativeStartCapture(h)
         when (s) {
             NativeBridge.STATUS_OK -> {}
@@ -156,6 +164,17 @@ public object Sentlog {
                 throw IllegalStateException("startCapture failed (status=$s)")
         }
 
+        // A failed start must not leave the core stuck in Capturing.
+        try {
+            startCaptureStreams(h)
+        } catch (t: Throwable) {
+            stopCaptureStreams()
+            NativeBridge.nativeCancel(h)
+            throw t
+        }
+    }
+
+    private fun startCaptureStreams(h: Long) {
         // Push the current audio input route so the C++ pipeline can
         // populate presence.audio_source. Without this push the route
         // stays UNKNOWN → audio_source = 0.0 in the result.
@@ -202,6 +221,15 @@ public object Sentlog {
         }
     }
 
+    private fun stopCaptureStreams() {
+        audio?.stop()
+        audio = null
+        vadStream?.close()
+        vadStream = null
+        motion?.stop()
+        motion = null
+    }
+
     /**
      * Stop capture and run the evaluation pipeline. Returns when the
      * pipeline completes.
@@ -218,12 +246,7 @@ public object Sentlog {
         // synchronized block and `await` returns immediately.
         synchronized(this@Sentlog) {
             val h = requireHandle()
-            audio?.stop()
-            audio = null
-            vadStream?.close()
-            vadStream = null
-            motion?.stop()
-            motion = null
+            stopCaptureStreams()
 
             runAasistAndPushLiveness(h)
             runWhisperAndPushTranscript(h)
@@ -252,28 +275,47 @@ public object Sentlog {
         deferred.await()
     }
 
-    /** Cancel any in-progress capture or evaluation. Safe to call any time. */
+    /**
+     * Cancel an in-progress capture. Safe to call any time. A running
+     * evaluation isn't interrupted: this waits for it to finish.
+     */
     @Synchronized
     public fun cancel() {
         if (handle == 0L) return
-        audio?.stop()
-        audio = null
-        vadStream?.close()
-        vadStream = null
-        motion?.stop()
-        motion = null
+        stopCaptureStreams()
         NativeBridge.nativeCancel(handle)
     }
 
-    /** Current permission state; never throws. */
+    /**
+     * Current permission state. Without the Context passed to
+     * [initialize] the SDK can't look, and reports `Prompt`. A permission
+     * not granted reports `Prompt` too: Android only tells an Activity
+     * whether the user has denied it.
+     */
+    @Synchronized
     public fun getPermissions(): Permissions {
         val h = requireHandle()
         val js = NativeBridge.nativeGetPermissions(h)
             ?: error("nativeGetPermissions returned null")
-        return json.decodeFromString(Permissions.serializer(), js)
+        val base = json.decodeFromString(Permissions.serializer(), js)
+        val ctx = appContext ?: return base
+        return Permissions(
+            microphone = permissionState(ctx, Manifest.permission.RECORD_AUDIO),
+            // Accelerometer and gyroscope need no runtime permission.
+            motion = if (base.motion == PermissionState.NotRequested) base.motion
+                     else PermissionState.Granted,
+            camera = if (base.camera == PermissionState.NotRequested) base.camera
+                     else permissionState(ctx, Manifest.permission.CAMERA),
+        )
     }
 
+    private fun permissionState(ctx: Context, permission: String): PermissionState =
+        if (ctx.checkPermission(permission, Process.myPid(), Process.myUid()) ==
+            PackageManager.PERMISSION_GRANTED
+        ) PermissionState.Granted else PermissionState.Prompt
+
     /** Current capability detection; never throws. */
+    @Synchronized
     public fun getCapabilities(): Capabilities {
         val h = requireHandle()
         val js = NativeBridge.nativeGetCapabilities(h)
@@ -282,6 +324,7 @@ public object Sentlog {
     }
 
     /** Versions of loaded models. */
+    @Synchronized
     public fun modelVersions(): ModelVersions {
         val h = requireHandle()
         val js = NativeBridge.nativeModelVersions(h)
@@ -320,7 +363,6 @@ public object Sentlog {
      */
     public suspend fun checkForUpdates(manifestJson: String): UpdateResult =
         withContext(Dispatchers.IO) {
-            val h = requireHandle()
             val deferred = CompletableDeferred<UpdateResult>()
             val cb = object : UpdateCallback() {
                 override fun onUpdate(status: Int, updateJson: String?) {
@@ -347,8 +389,11 @@ public object Sentlog {
                 }
             }
             val manifestBytes = manifestJson.toByteArray(Charsets.UTF_8)
-            val initialStatus = NativeBridge.nativeCheckForUpdates(
-                h, manifestBytes, cb)
+            // Under the monitor so destroy() can't free the handle during
+            // the call. The callback fires synchronously inside it.
+            val initialStatus = synchronized(this@Sentlog) {
+                NativeBridge.nativeCheckForUpdates(requireHandle(), manifestBytes, cb)
+            }
             if (initialStatus != NativeBridge.STATUS_OK &&
                 initialStatus != NativeBridge.STATUS_ERR_MANIFEST_VERIFY) {
                 throw IllegalStateException(
@@ -374,6 +419,7 @@ public object Sentlog {
      * dominant_fau}` in the result and contributes to engagement
      * via the `engagement.face` scoring weight.
      */
+    @Synchronized
     public fun pushFaceFrame(
         timestampNs: Long,
         valence: Float,
@@ -478,6 +524,7 @@ public object Sentlog {
      * `PlayIntegrityAttester` helper (Google Play Services dep) is
      * planned for 5e-ii.
      */
+    @Synchronized
     public fun setDeviceAttestation(
         tokenBytes: ByteArray?,
         attestationType: String? = null,
@@ -624,9 +671,9 @@ public object Sentlog {
      * with future telemetry; today it's ignored.
      */
     public fun drainQueue(path: String, drain: (String) -> Boolean): Int {
-        // Use the current handle if initialized; pass 0 otherwise.
-        // sentlog_drain_queue tolerates a null handle.
-        return NativeBridge.nativeDrainQueue(handle, path,
+        // sentlog_drain_queue ignores the handle, and reading it here
+        // would race destroy().
+        return NativeBridge.nativeDrainQueue(0L, path,
             object : DrainCallback() {
                 override fun onEnvelope(envelopeJson: String): Boolean =
                     drain(envelopeJson)
@@ -645,12 +692,7 @@ public object Sentlog {
     // --- internal helpers ---
 
     private fun destroyLocked() {
-        audio?.stop()
-        audio = null
-        vadStream?.close()
-        vadStream = null
-        motion?.stop()
-        motion = null
+        stopCaptureStreams()
         if (handle != 0L) {
             NativeBridge.nativeDestroy(handle)
             handle = 0L
@@ -700,7 +742,7 @@ public object Sentlog {
      */
     private fun runWhisperAndPushTranscript(h: Long) {
         val ctx = appContext ?: return
-        // Snapshot the full ring (up to ~30 s). Bigger than AASIST-L's
+        // Snapshot the full ring. Bigger than AASIST-L's
         // 4 s window because whisper transcribes everything that was said.
         val capacity = WHISPER_MAX_SAMPLES
         val buf = FloatArray(capacity)
@@ -722,9 +764,9 @@ public object Sentlog {
     private const val SILERO_MODEL_ASSET: String = "silero_vad.onnx"
     /** Asset name of the bundled AASIST-L liveness ONNX model. */
     private const val AASIST_MODEL_ASSET: String = "aasist_l.onnx"
-    /** Whisper transcribes up to 30 s of audio — matches the ring
+    /** Whisper transcribes everything captured — matches the ring
      *  buffer size in shared/src/internal/state.h. */
-    private const val WHISPER_MAX_SAMPLES: Int = 16_000 * 30
+    private const val WHISPER_MAX_SAMPLES: Int = 1_048_576
 
     /** Sentlog-published manifest URL. Placeholder until the v1.0
      *  manifest-publishing infrastructure goes live. Integrators

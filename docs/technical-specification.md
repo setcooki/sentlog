@@ -577,6 +577,13 @@ sync layer treats Sentlog output as one queue among many.
 Documentation must call out both patterns; neither is canonical —
 integrator architecture decides.
 
+
+### Encoded audio clips
+
+`OpusAudioEncoder` on both platforms emits codec `opus-framed-v1`: raw Opus
+packets, each prefixed with its length as a big-endian uint16, with no
+container. Android uses `MediaCodec` and iOS `AVAudioConverter`.
+
 ---
 
 ## 5. Security and Privacy
